@@ -33,7 +33,9 @@ args = parser.parse_args()
 
 rec = None
 lig = None
+
 def color():
+
     obConversion = openbabel.OBConversion()
     obConversion.SetInAndOutFormats("pdb","pdb")
 
@@ -41,11 +43,17 @@ def color():
     rec = openbabel.OBMol()
     lig = openbabel.OBMol()
 
+    outMol = pybel.Molecule(lig)
+
     obConversion.ReadFile(rec, args.receptor)
     obConversion.ReadFile(lig, args.ligand)
 
     rec = pybel.Molecule(rec)
     lig = pybel.Molecule(lig)
+    
+    atomTotal = lig.OBMol.NumAtoms()
+    startScore = score(args.receptor,args.ligand)
+    print("Start: "+str(startScore))
 
     for atom in lig:
         index = atom.idx
@@ -57,7 +65,12 @@ def color():
             tempLig.OBMol.DeleteAtom(currAtom)
             tempOut = pybel.Outputfile("pdb", "temp.pdb", overwrite = True)
             tempOut.write(tempLig)
-            print(str(score()))
+            diff = startScore - score(args.receptor, "temp.pdb")
+            outMol.OBMol.GetAtom(index).SetPartialCharge(diff)
+            print(diff)
+
+    finalOut = pybel.Outputfile("pdbqt", "colored.pdbqt", overwrite = True)
+    finalOut.write(outMol)
 
 if args.size is None:
     if args.center:
@@ -152,9 +165,9 @@ def genRemovalSdfCube(mol,size,x=0,y=0,z=0):
 '''
 '''
 
-def score():
+def score(recName, ligName):
         g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina','--score_only', \
-                        '-r', args.receptor, '-l', 'temp.pdb', '-o', 'min.sdf',            \
+                        '-r', recName, '-l', ligName, '-o', 'min.sdf',            \
                         '--cnn_scoring', '--autobox_ligand', 'temp.pdb', '--cnn_model'\
                         , 'matt.model', '--cnn_weights', 'weights.caffemodel',      \
                         '--cpu', '1', '--cnn_rotation', '24', '--gpu']
