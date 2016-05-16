@@ -28,6 +28,8 @@ primary.add_argument('--color', help = 'enables ligand coloring', \
 coloring.add_argument('-l','--ligand', type = str, help = 'ligand to color')
 coloring.add_argument('-r','--receptor', type = str, help = 'receptor used \
                         to score')
+coloring.add_argument('--cnn_model',type=str, help = 'model used to score')
+coloring.add_argument('--cnn_weights',type=str,help='weights used to score')
 
 args = parser.parse_args()
 
@@ -50,7 +52,7 @@ def color():
 
     rec = pybel.Molecule(rec)
     lig = pybel.Molecule(lig)
-    
+
     atomTotal = lig.OBMol.NumAtoms()
     startScore = score(args.receptor,args.ligand)
     print("Start: "+str(startScore))
@@ -162,17 +164,21 @@ def genRemovalSdfCube(mol,size,x=0,y=0,z=0):
         print("No atoms within bounds, nothing written")
     else:
         print(str(removedCounter)+" atoms removed")
-'''
-'''
 
 def score(recName, ligName):
         g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina','--score_only', \
                         '-r', recName, '-l', ligName, '-o', 'min.sdf',            \
                         '--cnn_scoring', '--autobox_ligand', 'temp.pdb', '--cnn_model'\
-                        , 'matt.model', '--cnn_weights', 'weights.caffemodel',      \
+                        , model, '--cnn_weights', \
+                        weights,      \
                         '--cpu', '1', '--cnn_rotation', '24', '--gpu']
 
-        output= subprocess.check_output(g_args, stdin=None, stderr=None)
+        output = None
+
+        try:
+            output= subprocess.check_output(g_args, stdin=None, stderr=None)
+        except:
+            sys.exit(0)
         cnnScore = None
 
         pattern = re.compile('-*d+\.?\d*')
@@ -199,7 +205,6 @@ if args.remove:
             cen = pybel.Molecule(cen)
             mol.OBMol.AddHydrogens()
             cenCoords = center(cen)
-
             genRemovalSdfCube(mol, args.size,cenCoords[0],cenCoords[1],cenCoords[2] )
         else:
             print("Removing cube of edge length " +str(args.size)+ " around point [0,0,0]")
@@ -208,9 +213,24 @@ if args.remove:
         print("No bounds input, removing every atom")
         genRemovalSdf(mol)
 
+weights = None
+model = None
+
 if args.color:
     if args.ligand and args.receptor:
+        if args.cnn_weights:
+            weights = args.cnn_weights
+        else:
+            weights = 'weights.caffemodel'
+        if args.cnn_model:
+            model = args.cnn_model
+        else:
+            model = 'matt.model'
+
+        print("\nWeights: "+weights)
+        print("Model: "+model+"\n")
+
         color()
     else:
-        parser.error("You must specify both a receptoe and a ligand")
+        parser.error("You must specify both a receptor and a ligand")
 
