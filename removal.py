@@ -7,7 +7,7 @@ import sys
 import argparse
 import subprocess
 import re
-
+'''
 parser = argparse.ArgumentParser(description="Generates a .sdf file by \
                                     removing each atom from a molecule")
 
@@ -100,11 +100,7 @@ def color(mol, size=None,x=0,y=0,z=0):
         tempOut = Chem.PDBWriter("temp.pdb")
         tempOut.write(tempMol.GetMol())
         tempOut.close()
-        if args.color_ligand:
-            diff = startScore - score(args.receptor, "temp.pdb")
-        elif args.color_receptor:
-            diff = startScore - score("temp.pdb", args.ligand)
-
+   
         outMol.GetAtomWithIdx(index).GetPDBResidueInfo().SetTempFactor(diff * 100)
         if args.verbose:
             print("Index: "+str(index)+ "| Symbol: "+currAtom.GetSymbol()+"| Diff: "+str(diff))
@@ -118,6 +114,34 @@ def color(mol, size=None,x=0,y=0,z=0):
 def center(mol):
     pos = rdMolTransforms.ComputeCentroid(mol.GetConformer())
     return (pos.x,pos.y,pos.z)
+'''
+
+#removes every atom in list from mol and returns score
+def removeAndScore(mol, list):
+    tempMol = copy.deepcopy(mol)
+    tempMol = Chem.EditableMol(tempMol)
+    #currAtom = mol.GetAtomWithIdx(index)
+    for index in list:
+        atom = mol.GetAtomFromIdx(index)
+        for atom in currAtom.GetNeighbors():
+            print(atom.GetIdx())
+            print(atom.GetSymbol())
+            if atom.GetAtomicNum() == 1:
+                try:
+                    tempMol.RemoveAtom(atom.GetIdx())
+                except:
+                    print("failed to remove hydrogen")
+        tempMol.RemoveAtom(index)
+        print("removing atom with index %s") % (index)
+    tempOut = Chem.PDBWriter("temp.pdb")
+    tempOut.write(tempMol.GetMol())
+    tempOut.close()
+    #if args.color_ligand:
+        #return score(args.receptor, "temp.pdb")
+    #elif args.color_receptor:
+        #return score("temp.pdb", args.ligand)
+
+    return score("uniq/3gvu_rec.pdb", "temp.pdb")
 
 def score(recName, ligName):
         g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina','--score_only', \
@@ -141,7 +165,7 @@ def score(recName, ligName):
                 if "CNNscore" in line:
                         cnnScore = (float)(re.findall('[-*]?\d+\.\d+', line)[0])
         return cnnScore
-
+'''
 weights = None
 model = None
 if args.ligand and args.receptor:
@@ -200,14 +224,14 @@ else:
 '''
 def scoreResidues(mol):
     outDict = []
-    stripMol = Chem.RemoveHs(mol)
+    testMol = Chem.RemoveHs(mol)
     currRes = mol.GetAtomWithIdx(0).GetPDBResidueInfo().GetResidueName()
     print(currRes)
-    print(stripMol.GetNumAtoms())
+    print(testMol.GetNumAtoms())
     sentry = True
     x = 0
     buff = []
-    while(sentry):
+    while():
         while(x < stripMol.GetNumAtoms()  and stripMol.GetAtomWithIdx(x).GetPDBResidueInfo().GetResidueName() == currRes):
                     buff.append(x)
                     x += 1
@@ -222,6 +246,9 @@ def scoreResidues(mol):
 
         currRes = mol.GetAtomWithIdx(x).GetPDBResidueInfo().GetResidueName()
 
+    return removeAndScore(mol, buff)
+
+model = "/home/dkoes/tmp/matt.model"
+weights = "/home/dkoes/tmp/comboweights.caffemodel"
 mol = Chem.MolFromPDBFile("uniq/3gvu_rec.pdb")
-scoreResidues(mol)
-'''
+print(scoreResidues(mol))
