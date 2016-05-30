@@ -130,7 +130,6 @@ def removeAndScore(mol, list):
     print("Time to addHs: %s") % (time.time()-currTime)
     currTime = time.time()
     tempOut = Chem.PDBWriter("temp.pdb")
-    tempMol = Chem.EditableMol(tempMol)
     print("Time to editableMol: %s") % (time.time()-currTime)
     currTime = time.time()
     #currAtom = mol.GetAtomWithIdx(index)
@@ -140,26 +139,23 @@ def removeAndScore(mol, list):
 #             print(atom.GetIdx())
 #            print(atom.GetSymbol())
             if atom.GetAtomicNum() == 1:
-                try:
-                    tempMol.RemoveAtom(atom.GetIdx())
-                except:
-                    print("failed to remove hydrogen")
+                    atom.SetAtomicNum(0)
         currTime = time.time()
-        tempMol.RemoveAtom(index)
-        print("Time to remove one: %s") % (time.time()-currTime)
-        #print("removing atom with index %s") % (index)
+        tempMol.GetAtomWithIdx(index).SetAtomicNum(0)
+    print(tempMol.GetNumAtoms())
+    tempMol = Chem.DeleteSubstructs(tempMol, Chem.MolFromSmarts('[#0]'))
+    print(tempMol.GetNumAtoms())
     print("Time to removal: %s") % (time.time()-currTime)
     currTime = time.time()
     tempOut = Chem.PDBWriter("temp.pdb")
-    tempOut.write(tempMol.GetMol())
-    print(tempMol.GetMol().GetNumAtoms())
+    tempOut.write(tempMol)
     tempOut.close()
     #if args.color_ligand:
         #return score(args.receptor, "temp.pdb")
     #elif args.color_receptor:
         #return score("temp.pdb", args.ligand)
 
-    return score("uniq/3gvu_rec.pdb", "temp.pdb")
+    return score("temp.pdb", "uniq/3gvu_lig.pdb")
 
 def score(recName, ligName):
         g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina','--score_only', \
@@ -266,6 +262,8 @@ def scoreResidues(inMol, size, x, y, z):
     conf = inMol.GetConformer()
     allowedDist = float(size)/2
     inRange = False
+#    score('yes', 'no')
+#    print('Starting score:'+str(score('uniq/3gvu_rec.pdb','uniq/3gvu_lig.pdb')))
 
     while(True):
         while(idx < testMol.GetNumAtoms()  and testMol.GetAtomWithIdx(idx).GetPDBResidueInfo().GetResidueName() == currRes):
@@ -275,7 +273,7 @@ def scoreResidues(inMol, size, x, y, z):
                 break
         print(buff)
         for index in buff:
-            sys.stdout.write("Checking atom" +str(index)+"\r")
+            #sys.stdout.write("Checking atom" +str(index)+"\r")
             sys.stdout.flush()
             pos = conf.GetAtomPosition(index)
             if pos.x < x+allowedDist: #positive bounds
@@ -287,7 +285,6 @@ def scoreResidues(inMol, size, x, y, z):
                                             inRange = True
                                             break
         if(inRange):
-            print("Valid, scoring")
             score = removeAndScore(mol,buff) 
             print(score)
             for index in buff:
@@ -299,12 +296,14 @@ def scoreResidues(inMol, size, x, y, z):
         currRes = mol.GetAtomWithIdx(idx).GetPDBResidueInfo().GetResidueName()
 
 #    return removeAndScore(mol, buff)
-model = "/home/jeh176/git/visual-scoring/matt.model"
+model = "/home/dkoes/tmp/matt.model"
 weights = "/home/dkoes/tmp/comboweights.caffemodel"
-size = 23.5
+size = 10
 
 mol = Chem.MolFromPDBFile("uniq/3gvu_rec.pdb")
+Chem.SanitizeMol(mol)
 lig = Chem.MolFromPDBFile("uniq/3gvu_lig.pdb")
+Chem.SanitizeMol(lig)
 center = center(lig)
 hMol = Chem.AddHs(mol, addCoords = True)
 
