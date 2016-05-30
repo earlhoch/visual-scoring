@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from rdkit import Chem
+#from rdkit.Chem import RWMol
 from rdkit.Chem import rdMolTransforms
 import pybel
 import copy
@@ -7,6 +8,7 @@ import sys
 import argparse
 import subprocess
 import re
+import time
 '''
 parser = argparse.ArgumentParser(description="Generates a .sdf file by \
                                     removing each atom from a molecule")
@@ -110,31 +112,47 @@ def color(mol, size=None,x=0,y=0,z=0):
     finalOut.write(outMol)
     finalOut.close()
     print("Colored molecule output to: "+fileName)
-
+'''
 def center(mol):
     pos = rdMolTransforms.ComputeCentroid(mol.GetConformer())
     return (pos.x,pos.y,pos.z)
-'''
 
 #removes every atom in list from mol and returns score
 def removeAndScore(mol, list):
+    #print(list)
+    currTime = time.time()
     tempMol = copy.deepcopy(mol)
+    print("Time to copy: %s") % (time.time()-currTime)
+    currTime = time.time()
+    tempOut = Chem.PDBWriter("temp.pdb")
+    tempMol = Chem.AddHs(tempMol)
+
+    print("Time to addHs: %s") % (time.time()-currTime)
+    currTime = time.time()
+    tempOut = Chem.PDBWriter("temp.pdb")
     tempMol = Chem.EditableMol(tempMol)
+    print("Time to editableMol: %s") % (time.time()-currTime)
+    currTime = time.time()
     #currAtom = mol.GetAtomWithIdx(index)
     for index in list:
-        atom = mol.GetAtomFromIdx(index)
+        currAtom = mol.GetAtomWithIdx(index)
         for atom in currAtom.GetNeighbors():
-            print(atom.GetIdx())
-            print(atom.GetSymbol())
+#             print(atom.GetIdx())
+#            print(atom.GetSymbol())
             if atom.GetAtomicNum() == 1:
                 try:
                     tempMol.RemoveAtom(atom.GetIdx())
                 except:
                     print("failed to remove hydrogen")
+        currTime = time.time()
         tempMol.RemoveAtom(index)
-        print("removing atom with index %s") % (index)
+        print("Time to remove one: %s") % (time.time()-currTime)
+        #print("removing atom with index %s") % (index)
+    print("Time to removal: %s") % (time.time()-currTime)
+    currTime = time.time()
     tempOut = Chem.PDBWriter("temp.pdb")
     tempOut.write(tempMol.GetMol())
+    print(tempMol.GetMol().GetNumAtoms())
     tempOut.close()
     #if args.color_ligand:
         #return score(args.receptor, "temp.pdb")
@@ -145,12 +163,11 @@ def removeAndScore(mol, list):
 
 def score(recName, ligName):
         g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina','--score_only', \
-                        '-r', recName, '-l', ligName, '-o', 'min.sdf',            \
-                        '--cnn_scoring', '--autobox_ligand', ligName, '--cnn_model'\
-                        , model, '--cnn_weights', \
-                        weights,      \
-                        '--cpu', '1', '--cnn_rotation', '24', '--gpu', '--addH',
-                        '0']
+                        '-r', recName, '-l', ligName, '-o', 'min.sdf', \
+                        '--cnn_scoring', '--autobox_ligand', ligName, \
+                        '--cnn_model' , model, '--cnn_weights', weights, \
+                        '--cpu', '1', '--cnn_rotation', '24', '--gpu',\
+                        '--addH','0']
 
         output = None
 
@@ -185,6 +202,9 @@ else:
 
 mol = None
 molName = None
+size = None
+cenCoords = None
+cen = Chem.MolFromPDBFile(args.center_around)
 
 if args.color_ligand:
     mol = Chem.MolFromPDBFile(args.ligand)
@@ -192,6 +212,13 @@ if args.color_ligand:
 elif args.color_receptor:
     mol = Chem.MolFromPDBFile(args.receptor)
     molName = args.receptor
+    if not args.size:
+        print("No size entered, defaulting to 23.5")
+        size = 23.5
+    if not args.center and not args.center_around:
+        print("No center entered, centering around ligand")
+        cenCoords = center(cen)
+
 
 if args.size is None:
     if args.center:
@@ -202,7 +229,10 @@ if args.size is None:
 if not args.color_receptor and not args.color_ligand:
     parser.error("You must specify --color_ligand or --color_receptor")
 
+
+
 if(args.size):
+    size = args.size
     if(args.center):
         print("Removing cube of edge length " +str(args.size)+ " around \
                 point ["+str(args.center[0])+ ", "+str(args.center[1])+"\
@@ -212,43 +242,71 @@ if(args.size):
     elif(args.center_around):
         print("Removing cube of edge length "+str(args.size)+ " around "\
                 +args.center_around)
-        cen = Chem.MolFromPDBFile(args.center_around)
         cenCoords = center(cen)
         color(mol, args.size,cenCoords[0],cenCoords[1],cenCoords[2] )
     else:
         print("Removing cube of edge length " +str(args.size)+ " around point [0,0,0]")
         color(mol, args.size)
 else:
-    print("No bounds input, removing every atom")
+    if args.color_ligand:
+        print("No size input, checking every atom")
     color(mol)
 '''
-def scoreResidues(mol):
-    outDict = []
-    testMol = Chem.RemoveHs(mol)
+#removes whole residues and scores
+#returns dict of {atom index:score} 
+def scoreResidues(inMol, size, x, y, z):
+    outDict = {}
+    testMol = copy.deepcopy(inMol)
+    print("Start: %s") % (testMol.GetNumAtoms())
     currRes = mol.GetAtomWithIdx(0).GetPDBResidueInfo().GetResidueName()
     print(currRes)
     print(testMol.GetNumAtoms())
-    sentry = True
-    x = 0
+    idx = 0
     buff = []
-    while():
-        while(x < stripMol.GetNumAtoms()  and stripMol.GetAtomWithIdx(x).GetPDBResidueInfo().GetResidueName() == currRes):
-                    buff.append(x)
-                    x += 1
-                    if(x >= stripMol.GetNumAtoms()):
-                        break
+    conf = inMol.GetConformer()
+    allowedDist = float(size)/2
+    inRange = False
+
+    while(True):
+        while(idx < testMol.GetNumAtoms()  and testMol.GetAtomWithIdx(idx).GetPDBResidueInfo().GetResidueName() == currRes):
+            buff.append(idx)
+            idx += 1
+            if(idx >= testMol.GetNumAtoms()):
+                break
         print(buff)
         for index in buff:
-            print(mol.GetAtomWithIdx(index).GetPDBResidueInfo().GetResidueName())
+            sys.stdout.write("Checking atom" +str(index)+"\r")
+            sys.stdout.flush()
+            pos = conf.GetAtomPosition(index)
+            if pos.x < x+allowedDist: #positive bounds
+                        if pos.y < y+allowedDist:
+                            if pos.z < z+allowedDist:
+                                if pos.x > x-allowedDist: #negative bounds
+                                    if pos.y > y-allowedDist:
+                                        if pos.z > z-allowedDist:
+                                            inRange = True
+                                            break
+        if(inRange):
+            print("Valid, scoring")
+            score = removeAndScore(mol,buff) 
+            print(score)
+            for index in buff:
+                outDict[index] = score
         buff = []
-        if(x >= mol.GetNumAtoms() -1 or mol.GetAtomWithIdx(x).GetAtomicNum() == 1):
+        if(idx >= mol.GetNumAtoms() -1 or mol.GetAtomWithIdx(idx).GetAtomicNum() == 1):
             break
 
-        currRes = mol.GetAtomWithIdx(x).GetPDBResidueInfo().GetResidueName()
+        currRes = mol.GetAtomWithIdx(idx).GetPDBResidueInfo().GetResidueName()
 
-    return removeAndScore(mol, buff)
-
-model = "/home/dkoes/tmp/matt.model"
+#    return removeAndScore(mol, buff)
+model = "/home/jeh176/git/visual-scoring/matt.model"
 weights = "/home/dkoes/tmp/comboweights.caffemodel"
+size = 23.5
+
 mol = Chem.MolFromPDBFile("uniq/3gvu_rec.pdb")
-print(scoreResidues(mol))
+lig = Chem.MolFromPDBFile("uniq/3gvu_lig.pdb")
+center = center(lig)
+hMol = Chem.AddHs(mol, addCoords = True)
+
+print(scoreResidues(mol, size, center[0], center[1], center[2]))
+#print(removeAndScore(mol, [533,534,535,536,537,538,539,540]))
