@@ -9,6 +9,7 @@ import argparse
 import subprocess
 import re
 import time
+import string
 '''
 parser = argparse.ArgumentParser(description="Generates a .sdf file by \
                                     removing each atom from a molecule")
@@ -297,7 +298,7 @@ def scoreResidues(inMol, size, x, y, z):
             break
 
         currRes = mol.GetAtomWithIdx(idx).GetPDBResidueInfo().GetResidueName()
-
+'''
 #    return removeAndScore(mol, buff)
 model = "/home/jeh176/git/visual-scoring/matt.model"
 weights = "/home/dkoes/tmp/comboweights.caffemodel"
@@ -310,3 +311,107 @@ hMol = Chem.AddHs(mol, addCoords = True)
 
 print(scoreResidues(mol, size, center[0], center[1], center[2]))
 #print(removeAndScore(mol, [533,534,535,536,537,538,539,540]))
+
+'''
+
+#print(orig.read())
+'''
+while(True):
+    x = orig.read(23)
+    if not x:
+        break
+    x = orig.read(4)
+    if not x:
+        break
+    print(x)
+    x = orig.readline()
+    if not x:
+        break
+        '''
+def removeResidues(list):
+    mol = Chem.MolFromPDBFile("uniq/3gvu_rec.pdb")
+    conf = mol.GetConformer()
+    cen = Chem.MolFromPDBFile("uniq/3gvu_lig.pdb")
+    cenCoords = center(cen)
+#    print(cenCoords)
+    x = cenCoords[0]
+    y = cenCoords[1]
+    z = cenCoords[2]
+    allowedDist = float(size)/2
+    inRange = False
+    numAtoms = mol.GetNumAtoms()
+    for index in list:
+        index = int(index)
+        if index >= numAtoms:
+            return 0
+        print(index)
+        #sys.stdout.write("Checking atom" +str(index)+"\r")
+        #sys.stdout.flush()
+        pos = conf.GetAtomPosition(index)
+        if pos.x < x+allowedDist: #positive bounds
+                    if pos.y < y+allowedDist:
+                        if pos.z < z+allowedDist:
+                            if pos.x > x-allowedDist: #negative bounds
+                                if pos.y > y-allowedDist:
+                                    if pos.z > z-allowedDist:
+                                        inRange = True
+                                        break
+#    print(list)
+    counter = 0
+    if inRange:
+        orig = open("uniq/3gvu_rec.pdb",'r')
+        writer = open("temp.pdb",'w')
+
+        for line in orig:
+    #        print(counter)
+            if 'CON' in line:
+                writer.write(line)
+            if 'END' in line:
+                writer.write(line)
+                break
+            index = string.strip(line[6:11])
+    #        print("INDEX: %s") % (index)
+            
+            if index not in list:
+                counter = counter+1
+                writer.write(line)
+        #    else:
+#                print("skipping line")
+
+#        print("%s lines written") % (counter)
+        writer.close()
+
+    #    mol = Chem.MolFromPDBFile("temp.pdb")
+        #print(mol.GetNumAtoms())
+
+        print(list)
+        return score("temp.pdb","uniq/3gvu_lig.pdb")
+    else:
+        return "Not in range"
+
+def listResidues():
+    orig = open("uniq/3gvu_rec.pdb", 'r')
+    res = ""
+    resList = []
+    for line in orig:
+        if not "CON" in line:
+            if not "END" in line:
+                if not "TER" in line:
+                    if line[23:27] !=  res:
+                        score = removeResidues(resList)
+                        if score == 0:
+                            return
+                        else:
+                            print score
+                        res = line[23:27]
+                        resList = []
+                        resList.append(string.strip(line[6:11]))
+                    else:
+                        resList.append(string.strip(line[6:11]))
+
+
+model = "/home/jeh176/git/visual-scoring/matt.model"
+weights = "/home/dkoes/tmp/comboweights.caffemodel"
+size = 23.5
+print(score("uniq/3gvu_rec.pdb","uniq/3gvu_lig.pdb"))
+listResidues()
