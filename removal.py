@@ -315,21 +315,11 @@ print(scoreResidues(mol, size, center[0], center[1], center[2]))
 '''
 
 #print(orig.read())
-'''
-while(True):
-    x = orig.read(23)
-    if not x:
-        break
-    x = orig.read(4)
-    if not x:
-        break
-    print(x)
-    x = orig.readline()
-    if not x:
-        break
-        '''
+def writeScores(scoreDict):
+    fileName = molName.split(".")[0]+"_colored.pdb" 
+
 def removeResidues(list):
-    mol = Chem.MolFromPDBFile("uniq/3gvu_rec.pdb")
+    mol = Chem.MolFromPDBFile(hName)
     conf = mol.GetConformer()
     cen = Chem.MolFromPDBFile("uniq/3gvu_lig.pdb")
     cenCoords = center(cen)
@@ -359,7 +349,7 @@ def removeResidues(list):
 #    print(list)
     counter = 0
     if inRange:
-        orig = open("uniq/3gvu_rec.pdb",'r')
+        orig = open(hName,'r')
         writer = open("temp.pdb",'w')
 
         for line in orig:
@@ -390,7 +380,7 @@ def removeResidues(list):
         return "Not in range"
 
 def listResidues():
-    orig = open("uniq/3gvu_rec.pdb", 'r')
+    orig = open(hName, 'r')
     res = ""
     resList = []
     for line in orig:
@@ -413,5 +403,11 @@ def listResidues():
 model = "/home/jeh176/git/visual-scoring/matt.model"
 weights = "/home/dkoes/tmp/comboweights.caffemodel"
 size = 23.5
+molName = "uniq/3gvu_rec.pdb"
+hName = molName + "_h"
+mol = Chem.MolFromPDBFile(molName)
+hMol = Chem.AddHs(mol)
+hOut = Chem.PDBWriter(hName)
+hOut.write(hMol)
 print(score("uniq/3gvu_rec.pdb","uniq/3gvu_lig.pdb"))
 listResidues()
