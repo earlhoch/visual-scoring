@@ -313,9 +313,18 @@ print(scoreResidues(mol, size, center[0], center[1], center[2]))
 
 '''
 
-#print(orig.read())
 def writeScores(scoreDict):
     fileName = molName.split(".")[0]+"_colored.pdb" 
+    mol = Chem.MolFromPDBFile(molName)
+    for atom in mol.GetAtoms():
+        atom.GetPDBResidueInfo().SetTempFactor(0)
+    for index in scoreDict:
+        diff = (originalScore - scoreDict[index]) * 100
+        mol.GetAtomWithIdx(index).GetPDBResidueInfo().SetTempFactor(diff)
+
+    writer = Chem.PDBWriter(fileName)
+    writer.write(mol)
+    writer.close()
 
 def removeResidues(list):
     mol = Chem.MolFromPDBFile(molName)
@@ -330,7 +339,6 @@ def removeResidues(list):
     inRange = False
     numAtoms = mol.GetNumAtoms()
     for index in list:
-        index = int(index)
         if index >= numAtoms:
             return 0
     #    print(index)
@@ -359,16 +367,16 @@ def removeResidues(list):
             if 'END' in line:
                 writer.write(line)
                 break
-            index = string.strip(line[6:11])
+            index = int(string.strip(line[6:11]))
     #        print("INDEX: %s") % (index)
             
             if index not in list:
                 counter = counter+1
                 writer.write(line)
-        #    else:
+#            else:
 #                print("skipping line")
 
-#        print("%s lines written") % (counter)
+        print("%s lines written") % (counter)
         writer.close()
 
     #    mol = Chem.MolFromPDBFile("temp.pdb")
@@ -376,11 +384,13 @@ def removeResidues(list):
 
         print(list)
         return score("temp.pdb","uniq/3gvu_lig.pdb")
-    else:
-        return "Not in range"
+
+    else: #not in range
+        return None
 
 def listResidues():
-    orig = open(hName, 'r')
+    scoreDict = {}
+    orig = open("uniq/babeled.pdb", 'r')
     res = ""
     resList = []
     for line in orig:
@@ -389,18 +399,78 @@ def listResidues():
                 if not "TER" in line:
                     if line[23:27] !=  res:
                         score = removeResidues(resList)
-                        if score == 0:
-                            return
-                        else:
+                        if score:
                             print score
+                            for index in resList:
+                                scoreDict[index] = score
                         res = line[23:27]
                         resList = []
-                        resList.append(string.strip(line[6:11]))
+                        resList.append(int(string.strip(line[6:11])))
                     else:
-                        resList.append(string.strip(line[6:11]))
+                        resList.append(int(string.strip(line[6:11])))
+    writeScores(scoreDict)
+
+def removeAllAtoms():
+    scoreDict = {}
+    orig = open("uniq/babeled.pdb", 'r')
+    mol = Chem.MolFromPDBFile(molName)
+    conf = mol.GetConformer()
+    cen = Chem.MolFromPDBFile("uniq/3gvu_lig.pdb")
+    cenCoords = center(cen)
+    print(cenCoords)
+#    print(cenCoords)
+    x = cenCoords[0]
+    y = cenCoords[1]
+    z = cenCoords[2]
+    allowedDist = float(size)/2
+    inRange = False
+    numAtoms = mol.GetNumAtoms()
+    for line in orig:
+#        print(line)
+        index = int(string.strip(line[6:11]))
+        #print(index)
+        #print(index)
+        #sys.stdout.write("Checking atom" +str(index)+"\r")
+        #sys.stdout.flush()
+        pos = conf.GetAtomPosition(index)
+        if pos.x < x+allowedDist: #positive bounds
+                    if pos.y < y+allowedDist:
+                        if pos.z < z+allowedDist:
+                            if pos.x > x-allowedDist: #negative bounds
+                                if pos.y > y-allowedDist:
+                                    if pos.z > z-allowedDist:
+                                        inRange = True
+        if inRange:
+            print index
+            orig2 = open("uniq/babeled.pdb",'r')
+            writer = open("temp.pdb",'w')
+
+            for line in orig2:
+        #        print(counter)
+                if 'CON' in line:
+                    #writer.write(line)
+                    break
+                if 'END' in line:
+                    writer.write(line)
+                    break
+                testIndex = int(string.strip(line[6:11]))
+#                print("TEST" + str(testIndex))
+        #        print("INDEX: %s") % (index)
+                
+                if index != testIndex:
+                    writer.write(line)
+#                else:
+#                    print("skipping line")
+
+            writer.close()
+            sCore = score("temp.pdb", "uniq/3gvu_lig.pdb")
+            print(sCore)
+            scoreDict[index] = sCore
+
+    writeScores(scoreDict)
 
 
-model = "/home/jeh176/git/visual-scoring/matt.model"
+model = "/home/dkoes/tmp/matt.model"
 weights = "/home/dkoes/tmp/comboweights.caffemodel"
 size = 23.5
 molName = "uniq/3gvu_rec.pdb"
@@ -411,9 +481,12 @@ hMol = Chem.AddHs(mol, addCoords = True)
 hOut = Chem.PDBWriter(hName)
 hOut.write(hMol)
 hOut.close()
-print("OBabel H's: %f") % (score("uniq/obabeled.pdb","uniq/3gvu_lig.pdb"))
 print("Babel H's: %f") % (score("uniq/babeled.pdb","uniq/3gvu_lig.pdb"))
-print("Added H's: %f") % (score(hName,"uniq/3gvu_lig.pdb"))
-print("Original: %f") % (score("3gvu_rec.pdb", "3gvu_lig.pdb"))
-print("Uniq: %f") % (score("uniq/3gvu_rec.pdb", "3gvu_lig.pdb"))
-listResidues()
+#print("Added H's: %f") % (score(hName,"uniq/3gvu_lig.pdb"))
+#print("Original: %f") % (score("3gvu_rec.pdb", "3gvu_lig.pdb"))
+originalScore = score("uniq/babeled.pdb", "3gvu_lig.pdb")
+#print("Uniq: %f") % (originalScore)
+
+#print(listResidues())
+#writeScores({0:123, 1:33, 2:55})
+removeAllAtoms()
