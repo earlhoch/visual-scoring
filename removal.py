@@ -318,7 +318,7 @@ def writeScores(scoreDict):
     fileName = molName.split(".")[0]+"_colored.pdb" 
 
 def removeResidues(list):
-    mol = Chem.MolFromPDBFile(hName)
+    mol = Chem.MolFromPDBFile(molName)
     conf = mol.GetConformer()
     cen = Chem.MolFromPDBFile("uniq/3gvu_lig.pdb")
     cenCoords = center(cen)
@@ -333,7 +333,7 @@ def removeResidues(list):
         index = int(index)
         if index >= numAtoms:
             return 0
-        print(index)
+    #    print(index)
         #sys.stdout.write("Checking atom" +str(index)+"\r")
         #sys.stdout.flush()
         pos = conf.GetAtomPosition(index)
@@ -354,7 +354,8 @@ def removeResidues(list):
         for line in orig:
     #        print(counter)
             if 'CON' in line:
-                writer.write(line)
+                #writer.write(line)
+                break
             if 'END' in line:
                 writer.write(line)
                 break
@@ -403,10 +404,16 @@ model = "/home/jeh176/git/visual-scoring/matt.model"
 weights = "/home/dkoes/tmp/comboweights.caffemodel"
 size = 23.5
 molName = "uniq/3gvu_rec.pdb"
-hName = molName + "_h"
+nameSplit = molName.split(".")
+hName = nameSplit[0] + "_h." + nameSplit[1]
 mol = Chem.MolFromPDBFile(molName)
-hMol = Chem.AddHs(mol)
+hMol = Chem.AddHs(mol, addCoords = True)
 hOut = Chem.PDBWriter(hName)
 hOut.write(hMol)
-print(score("uniq/3gvu_rec.pdb","uniq/3gvu_lig.pdb"))
+hOut.close()
+print("OBabel H's: %f") % (score("uniq/obabeled.pdb","uniq/3gvu_lig.pdb"))
+print("Babel H's: %f") % (score("uniq/babeled.pdb","uniq/3gvu_lig.pdb"))
+print("Added H's: %f") % (score(hName,"uniq/3gvu_lig.pdb"))
+print("Original: %f") % (score("3gvu_rec.pdb", "3gvu_lig.pdb"))
+print("Uniq: %f") % (score("uniq/3gvu_rec.pdb", "3gvu_lig.pdb"))
 listResidues()
