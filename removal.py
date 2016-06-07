@@ -1,14 +1,17 @@
 #!/usr/bin/env python
 from rdkit import Chem
-#from rdkit.Chem import RWMol
 from rdkit.Chem import rdMolTransforms
 import copy
 import sys
 import argparse
 import subprocess
 import re
-import time
 import string
+import createsmartsdescriptors
+
+model = "/home/jeh176/git/visual-scoring/matt.model"
+weights = "/home/dkoes/tmp/comboweights.caffemodel"
+molName = "uniq/3gvu_lig.pdb"
 
 def score(recName, ligName):
         g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina','--score_only', \
@@ -32,50 +35,48 @@ def score(recName, ligName):
                         cnnScore = (float)(re.findall('[-*]?\d+\.\d+', line)[0])
         return cnnScore
 
+originalScore = score("uniq/3gvu_rec.pdb", "uniq/3gvu_lig.pdb")
+print originalScore
+
 def writeScores(scoreDict):
-    fileName = molName.split(".")[0]+"_residues.pdb" 
+    fileName = molName.split(".")[0]+"_frags.pdb" 
     mol = Chem.MolFromPDBFile(molName)
     for atom in mol.GetAtoms():
         atom.GetPDBResidueInfo().SetTempFactor(0)
     for index in scoreDict:
-        diff = (originalScore - scoreDict[index]) * 100
-        mol.GetAtomWithIdx(index).GetPDBResidueInfo().SetTempFactor(diff)
+        #diff = (originalScore - scoreDict[index]) * 100
+        mol.GetAtomWithIdx(index).GetPDBResidueInfo().SetTempFactor(scoreDict[index] * 100)
 
     writer = Chem.PDBWriter(fileName)
     writer.write(mol)
     writer.close()
 
-def checkResidues(list):
-    mol = Chem.MolFromPDBFile(molName)
-    conf = mol.GetConformer()
-    cen = Chem.MolFromPDBFile("uniq/3gvu_lig.pdb")
-    cenCoords = center(cen)
-#    print(cenCoords)
-    x = cenCoords[0]
-    y = cenCoords[1]
-    z = cenCoords[2]
-    allowedDist = float(size)/2
-    inRange = False
-    numAtoms = mol.GetNumAtoms()
-    for index in list:
-        if index >= numAtoms:
-            return 0
-    #    print(index)
-        #sys.stdout.write("Checking atom" +str(index)+"\r")
-        #sys.stdout.flush()
-        pos = conf.GetAtomPosition(index)
-        if pos.x < x+allowedDist: #positive bounds
-                    if pos.y < y+allowedDist:
-                        if pos.z < z+allowedDist:
-                            if pos.x > x-allowedDist: #negative bounds
-                                if pos.y > y-allowedDist:
-                                    if pos.z > z-allowedDist:
-                                        inRange = True
-                                        break
-#    print(list)
+def removeAndScore(mol, list, cenCoords):
+    inRange = True
+#    if args.color_receptor:
+    if False:
+        x = cenCoords[0]
+        y = cenCoords[1]
+        z = cenCoords[2]
+        allowedDist = float(size)/2
+        inRange = False
+        numAtoms = mol.GetNumAtoms()
+        for index in list:
+            if index >= numAtoms:
+                return 0
+
+            pos = conf.GetAtomPosition(index)
+            if pos.x < x+allowedDist: #positive bounds
+                        if pos.y < y+allowedDist:
+                            if pos.z < z+allowedDist:
+                                if pos.x > x-allowedDist: #negative bounds
+                                    if pos.y > y-allowedDist:
+                                        if pos.z > z-allowedDist:
+                                            inRange = True
+                                            break
     counter = 0
     if inRange:
-        orig = open(hName,'r')
+        orig = open("uniq/3gvu_lig.pdb",'r')
         writer = open("temp.pdb",'w')
 
         for line in orig:
@@ -100,8 +101,18 @@ def checkResidues(list):
 
         print(list)
 
-        #divided by number of atoms in residue to avoid bias in large residues
-        return score("temp.pdb","uniq/3gvu_lig.pdb") / len(list)
+        #if(args.color_receptor):
+        if False:
+            scoreVal = score("temp.pdb","uniq/3gvu_lig.pdb")
+        #if(args.color_ligand):
+        if True:
+            scoreVal = score("uniq/3gvu_rec.pdb","temp.pdb" )
+
+        #divided by number of atoms in group to avoid bias in large residues
+        print scoreVal
+        diff = originalScore - scoreVal
+        print diff
+        return diff / len(list)
 
     else: #not in range
         return None
@@ -127,15 +138,25 @@ def removeResidues():
                         resList.append(int(string.strip(line[6:11])))
                     else:
                         resList.append(int(string.strip(line[6:11])))
-    writeScores(scoreDict)
+    return scoreDict
 
-def removeAllAtoms():
+def center(mol):
+    conf = mol.GetConformers()[0]
+    cen = rdMolTransforms.ComputeCentroid(conf)
+    return (cen.x, cen.y, cen.z)
+
+def removeAllAtoms(mol, size, cenCoords):
+    #removes all atoms within range
+
     if args.color_ligand:
         pdbText = open(args.ligand, 'r')
-        mol = Chem.MolFromPDBFile(args.ligand)
+        mol = Chem.MolFromPDBFile(args.ligand, removeHs = False, sanitize =
+                False)
+
     if args.color_receptor:
         pdbText = open(args.receptor, 'r')
-        mol = Chem.MolFromPDBFile(args.receptor)
+        mol = Chem.MolFromPDBFile(args.receptor, removeHs = False, sanitize =
+                False)
         x = cenCoords[0]
         y = cenCoords[1]
         z = cenCoords[2]
@@ -192,9 +213,83 @@ def removeAllAtoms():
             print(scoreValue)
             scoreDict[index] = scoreValue
 
-    writeScores(scoreDict)
+    return scoreDict
+
+def fragment(mol):
+    avgDict = {} # stores (total score, number of scores) for average
+    for atom in mol.GetAtoms():
+        avgDict[atom.GetIdx()] = [0,0]
+    paths = createsmartsdescriptors.computesubgraphsmarts(mol, 6)
+    for path in paths:
+        indices = mol.GetSubstructMatch(Chem.MolFromSmiles(path))
+        print indices
+        score = removeAndScore(mol, indices, center(mol))
+        print score
+        for index in indices:
+            avgDict[index][0] += score
+            avgDict[index][1] += 1
+
+    returnDict = {}
+    for index in avgDict:
+        if avgDict[index][1] != 0:
+            returnDict[index] = avgDict[index][0] / avgDict[index][1]
+            print index
+            print returnDict[index]
+
+    return returnDict
+
+
+
+def addHydrogens(molName):
+    #adds hydrogens and writes to file
+    #returns mol with hydrogens added
+    #uses openbabel to best simulate gnina's hydrogen addition
+
+    nameSplit = molName.split(".")
+    hName = nameSplit[0] + "_h." + nameSplit[1]
+    #g_args = ['obabel', "-ipdb", molName, '-O', hName, '-h']
+    g_args = ['babel', "-ipdb", molName, '-opdb', hName, '-h']
+
+    try:
+        subprocess.call(g_args, stdin=None, stderr=None)
+    except:
+        print("Error adding hydrogens with openbabel")
+        sys.exit(0)
+
+    print("post obabel")
+#
+    g_args = ['uniq', hName]
+
+    try:
+        uniqOut = subprocess.check_output(g_args, stdin=None, stderr=None)
+    except:
+        print("Error with uniq")
+        sys.exit(0)
+
+    hOut = open(hName, 'w')
+    hOut.write(uniqOut)
+    print hName
+    print "pre read in"
+    mol = Chem.MolFromPDBFile(hName, removeHs = False)
+    print "post read in"
+    print mol.GetNumAtoms()
+    return mol
+
 
 def main():
+    mol = Chem.MolFromPDBFile(molName)
+    writeScores(fragment(mol))
+    '''
+    molName = "uniq/3gvu_rec.pdb"
+    print("molname")
+    mol = Chem.MolFromPDBFile(molName)
+    print mol.GetNumAtoms()
+    hMol = addHydrogens(molName)
+    print("addhydrogens")
+    print hMol.GetNumAtoms()
+
+    system.exit(0)
+
     parser = argparse.ArgumentParser(description="Generates a .sdf file by \
                                         removing each atom from a molecule")
     receptor = parser.add_argument_group(title="Receptor Coloring Options")
@@ -223,13 +318,15 @@ def main():
         print("Model: "+model+"\n")
 
     if args.color_ligand:
-        mol = Chem.MolFromPDBFile(args.ligand)
+        mol = Chem.MolFromPDBFile(args.ligand, removeHs = False, sanitize =
+                False)
         molName = args.ligand
+        writeScores(removeAllAtoms(mol))
 
     elif args.color_receptor:
-        mol = Chem.MolFromPDBFile(args.receptor)
+        mol = Chem.MolFromPDBFile(args.receptor, removeHs = False, sanitize =
+                False)
         molName = args.receptor
-        cenCoords = None
 
     else:
         parser.error("You must specify --color_ligand or --color_receptor")
@@ -241,24 +338,6 @@ def main():
             print("No center entered, centering around ligand")
             cen = Chem.MolFromPDBFile(args.center_around)
             cenCoords = center(cen)
-
-def addHydrogens(molName):
-    #adds hydrogens and writes to file
-    #returns mol with hydrogens added
-    #uses babel to best simulate gnina's hydrogen addition
-
-    nameSplit = molName.split(".")
-    hName = nameSplit[0] + "_h." + nameSplit[1]j
-    g_args = ['babel', '-h', molName, hName]
-
-    try:
-        subprocess.call(g_args, stdin=None, stderr=None)
-    except:
-        print("Error adding hydrogens with babel")
-        sys.exit(0)
-
-    mol = Chem.MolFromPDBFile
-
 
     if args.size:
         size = args.size
@@ -283,9 +362,8 @@ def addHydrogens(molName):
             parser.error("--center_around requires --size")
        if args.color_ligand:
             print("No size input, checking every atom")
-       color(mol)
+    '''
 
-   
 if __name__ == "__main__":
     main()
 
