@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
+from rdkit.Chem import rdmolops
+import openbabel
 import copy
 import sys
 import argparse
@@ -9,17 +11,13 @@ import re
 import string
 import createsmartsdescriptors
 
-model = "/home/jeh176/git/visual-scoring/matt.model"
-weights = "/home/dkoes/tmp/comboweights.caffemodel"
-molName = "uniq/3gvu_lig.pdb"
-
-def score(recName, ligName):
+def score(recName):
         g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina','--score_only', \
-                        '-r', recName, '-l', ligName, '-o', 'min.sdf', \
-                        '--cnn_scoring', '--autobox_ligand', ligName, \
-                        '--cnn_model' , model, '--cnn_weights', weights, \
-                        '--cpu', '1', '--cnn_rotation', '24', '--gpu',\
-                        '--addH','0']
+                            '-r', recName, '-l', ligName, '-o', 'min.sdf', \
+                            '--cnn_scoring', '--autobox_ligand', ligName, \
+                            '--cnn_model' , model, '--cnn_weights', weights, \
+                            '--cpu', '1', '--cnn_rotation', '24', '--gpu',\
+                            '--addH','0']
 
         output = None
 
@@ -35,26 +33,41 @@ def score(recName, ligName):
                         cnnScore = (float)(re.findall('[-*]?\d+\.\d+', line)[0])
         return cnnScore
 
-originalScore = score("uniq/3gvu_rec.pdb", "uniq/3gvu_lig.pdb")
-print originalScore
 
 def writeScores(scoreDict):
-    fileName = molName.split(".")[0]+"_frags.pdb" 
+    fileName = molName.split(".")[0]+"_colored.pdb" 
+    orig = open(hMolName, 'r')
+    out = open(fileName, 'w')
+
+    scoreList = [1.54, 2.66, 3.6, 4.55, 5.99999]
+    counter = 0
+
+    out.write("CNN MODEL: "+model+'\n')
+    out.write("CNN WEIGHTS: "+weights+'\n')
+    for line in orig:
+            if "ATOM" in line or "HETATM" in line:
+                index = line[6:11]
+                newLine = line[0:61]
+                if int(index) in scoreDict:
+                    numString = '%.2f' % scoreList[counter]
+                else:
+                    numString = '%.2f' % 0.00
+
+                newLine = line[0:61]
+                newLine = (newLine + '%6s' + line[67:82]) % numString
+                #newLine = newLine + '\n'
+                out.write(newLine)
+                counter = (counter + 1) % len(scoreList)
+            else:
+                out.write(line)
+
+    out.close()
+
+def removeAndScore(molName, list, cenCoords):
     mol = Chem.MolFromPDBFile(molName)
-    for atom in mol.GetAtoms():
-        atom.GetPDBResidueInfo().SetTempFactor(0)
-    for index in scoreDict:
-        #diff = (originalScore - scoreDict[index]) * 100
-        mol.GetAtomWithIdx(index).GetPDBResidueInfo().SetTempFactor(scoreDict[index] * 100)
-
-    writer = Chem.PDBWriter(fileName)
-    writer.write(mol)
-    writer.close()
-
-def removeAndScore(mol, list, cenCoords):
     inRange = True
-#    if args.color_receptor:
-    if False:
+    if args.color_receptor:
+        conf = mol.GetConformers()[0]
         x = cenCoords[0]
         y = cenCoords[1]
         z = cenCoords[2]
@@ -76,7 +89,10 @@ def removeAndScore(mol, list, cenCoords):
                                             break
     counter = 0
     if inRange:
-        orig = open("uniq/3gvu_lig.pdb",'r')
+        if colorLig:
+            orig = open(ligName,'r')
+        else:
+            orig = open(recName, 'r')
         writer = open("temp.pdb",'w')
 
         for line in orig:
@@ -101,26 +117,30 @@ def removeAndScore(mol, list, cenCoords):
 
         print(list)
 
-        #if(args.color_receptor):
-        if False:
-            scoreVal = score("temp.pdb","uniq/3gvu_lig.pdb")
-        #if(args.color_ligand):
-        if True:
-            scoreVal = score("uniq/3gvu_rec.pdb","temp.pdb" )
+        if colorLig:
+            scoreVal = score(hRecName,"temp.pdb" )
+        else:
+            scoreVal = score("temp.pdb",hLigName)
 
-        #divided by number of atoms in group to avoid bias in large residues
         print scoreVal
         diff = originalScore - scoreVal
         print diff
+
+        #divided by number of atoms in group to avoid bias in large residues
         return diff / len(list)
 
     else: #not in range
         return None
 
-#lists all residues to pass to checkResidues()
 def removeResidues():
+#lists all residues to pass to checkResidues()
+
+#FIND FIRST RESIDUE NUMBER
+#ITERATE THROUGH NUMBERS
+#IF NUMBER NOT CURRENT, DO NOT WRITE
+
     scoreDict = {}
-    orig = open("uniq/babeled.pdb", 'r')
+    orig = open(hRecName, 'r')
     res = ""
     resList = []
     for line in orig:
@@ -128,7 +148,7 @@ def removeResidues():
             if not "END" in line:
                 if not "TER" in line:
                     if line[23:27] !=  res:
-                        score = removeResidues(resList)
+                        score = removeAndScore(mol, resList, center(mol))
                         if score:
                             print score
                             for index in resList:
@@ -145,18 +165,14 @@ def center(mol):
     cen = rdMolTransforms.ComputeCentroid(conf)
     return (cen.x, cen.y, cen.z)
 
-def removeAllAtoms(mol, size, cenCoords):
+def removeAllAtoms(mol, size, cenCoords, colorLig):
     #removes all atoms within range
 
-    if args.color_ligand:
-        pdbText = open(args.ligand, 'r')
-        mol = Chem.MolFromPDBFile(args.ligand, removeHs = False, sanitize =
-                False)
+    if colorLig:
+        pdbText = open(ligName, 'r')
 
-    if args.color_receptor:
-        pdbText = open(args.receptor, 'r')
-        mol = Chem.MolFromPDBFile(args.receptor, removeHs = False, sanitize =
-                False)
+    else:
+        pdbText = open(ligName, 'r')
         x = cenCoords[0]
         y = cenCoords[1]
         z = cenCoords[2]
@@ -174,7 +190,7 @@ def removeAllAtoms(mol, size, cenCoords):
         inRange=True
 
         #bound check only necessary for receptor
-        if args.color_receptor:
+        if not colorLig:
             inRange = False
             pos = conf.GetAtomPosition(index)
             if pos.x < x+allowedDist: #positive bounds
@@ -186,11 +202,12 @@ def removeAllAtoms(mol, size, cenCoords):
                                             inRange = True
 
         if inRange:
-            if args.verbose:
-                sys.out.write(index)
 
             #have to iterate through file from beginning again
-            pdbText2 = open("uniq/3gvu_lig.pdb",'r')
+            if colorLig:
+                pdbText2 = open(ligName,'r')
+            else:
+                pdbText2 = open(recName, 'r')
             writer = open("temp.pdb",'w')
 
             for line in pdbText2:
@@ -209,13 +226,18 @@ def removeAllAtoms(mol, size, cenCoords):
 #                    print("skipping line")
 
             writer.close()
-            scoreValue = score("uniq/babeled.pdb", "temp.pdb")
+            if colorLig:
+                print "scoring" + hRecName + " temp.pdb"
+                scoreValue = score(hRecName, "temp.pdb")
+            else:
+                scoreValue = score("temp.pdb", hLigName)
             print(scoreValue)
             scoreDict[index] = scoreValue
 
     return scoreDict
 
-def fragment(mol):
+def fragment(molName):
+    mol = Chem.MolFromPDBFile(molName)
     avgDict = {} # stores (total score, number of scores) for average
     for atom in mol.GetAtoms():
         avgDict[atom.GetIdx()] = [0,0]
@@ -238,133 +260,110 @@ def fragment(mol):
 
     return returnDict
 
+def uniq(molName):
+    g_args = ['uniq',molName]
 
+    output = None
+
+    try:
+        output= subprocess.check_output(g_args, stdin=None, stderr=None)
+    except:
+        sys.exit(0)
+
+    split = string.split(molName, ".")
+    newName = split[0] + "_uniq." + split[1]
+    out = open(newName, 'w')
+
+    out.write(output)
+
+    return newName
 
 def addHydrogens(molName):
     #adds hydrogens and writes to file
-    #returns mol with hydrogens added
     #uses openbabel to best simulate gnina's hydrogen addition
+    #file has '_h' appended to end
 
-    nameSplit = molName.split(".")
-    hName = nameSplit[0] + "_h." + nameSplit[1]
-    #g_args = ['obabel', "-ipdb", molName, '-O', hName, '-h']
-    g_args = ['babel', "-ipdb", molName, '-opdb', hName, '-h']
+    split = string.split(molName, '.')
+    newName = split[0]+"_h."+split[1]
 
-    try:
-        subprocess.call(g_args, stdin=None, stderr=None)
-    except:
-        print("Error adding hydrogens with openbabel")
-        sys.exit(0)
+    obConv = openbabel.OBConversion()
+    obConv.SetInAndOutFormats(split[1], "pdb")
 
-    print("post obabel")
-#
-    g_args = ['uniq', hName]
+    mol = openbabel.OBMol()
+    obConv.ReadFile(mol, molName)
+    print mol.NumAtoms()
+    mol.AddHydrogens()
+    print mol.NumAtoms()
 
-    try:
-        uniqOut = subprocess.check_output(g_args, stdin=None, stderr=None)
-    except:
-        print("Error with uniq")
-        sys.exit(0)
+    obConv.WriteFile(mol, newName)
 
-    hOut = open(hName, 'w')
-    hOut.write(uniqOut)
-    print hName
-    print "pre read in"
-    mol = Chem.MolFromPDBFile(hName, removeHs = False)
-    print "post read in"
-    print mol.GetNumAtoms()
-    return mol
-
+    return newName
 
 def main():
-    mol = Chem.MolFromPDBFile(molName)
-    writeScores(fragment(mol))
-    '''
-    molName = "uniq/3gvu_rec.pdb"
-    print("molname")
-    mol = Chem.MolFromPDBFile(molName)
-    print mol.GetNumAtoms()
-    hMol = addHydrogens(molName)
-    print("addhydrogens")
-    print hMol.GetNumAtoms()
 
-    system.exit(0)
+    '''
+    global molName, model, weights, hMolName
+    model = "model goes here"
+    weights = "weights goes here"
+    molName = "3gvu_rec.pdb"
+    hMolName = addHydrogens(molName)
+    print hMolName
+    writeScores({1:2.34,2:4.55,4:6.89})
+    '''
 
     parser = argparse.ArgumentParser(description="Generates a .sdf file by \
                                         removing each atom from a molecule")
     receptor = parser.add_argument_group(title="Receptor Coloring Options")
-    receptor.add_argument('-s','--size', type=float, help = 'edge length of bounding cube')
+    receptor.add_argument('-s','--size', type=float, help = 'edge length of\
+                        bounding cube (default 23.5)', default = 23.5)
     receptor.add_argument('--center_around', type=str, metavar = 'FILE', help='pdb \
-                        file containing molecule to center removal cube')
-    receptor.add_argument('-c', '--center', type = float, nargs=3, metavar = \
-                        ('X','Y','Z'),help = 'coordinates to center bounding cube (default [0,0,0])')
-    parser.add_argument('-l','--ligand', type = str, help = 'ligand to color', required=True)
-    parser.add_argument('-r','--receptor', type = str, help = 'receptor used \
-                            to score', required = True)
-    parser.add_argument('--color_ligand',action = 'store_true',help = 'color ligand by removal')
-    parser.add_argument('--color_receptor',action = 'store_true',help = 'color receptor by removal')
+                        file containing molecule to center removal cube\
+                        (defaults to center around ligand)')
+    parser.add_argument('-l','--ligand', type = str, help = 'ligand for scoring', required=True)
+    parser.add_argument('-r','--receptor', type = str, help = 'receptor for \
+                        scoring', required = True)
+    parser.add_argument('--color_ligand',action = 'store_true')
+    parser.add_argument('--color_receptor',action = 'store_true')
     parser.add_argument('--cnn_model',type=str, help = 'model used to score', required = True)
     parser.add_argument('--cnn_weights',type=str,help='weights used to score', required = True)
     parser.add_argument('--verbose',action = 'store_true', help = 'diagnostic output')
 
+    global args
     args = parser.parse_args()
+    print "start"
 
-    #originalScore = score("uniq/babeled.pdb", "3gvu_lig.pdb")
-    weights = args.cnn_weights
-    model = args.cnn_model
+    if not args.color_ligand and not args.color_receptor:
+        parser.error("You must specify --color_ligand or --color_receptor")
+
+    global hRecName
+    global hLigName
+    hRecName = addHydrogens(args.receptor)
+    hLigName = addHydrogens(args.ligand)
 
     if args.verbose:
         print("\nWeights: "+weights)
         print("Model: "+model+"\n")
 
+    if not args.size and args.center_around:
+            parser.error("--center_around requires --size")
+
     if args.color_ligand:
-        mol = Chem.MolFromPDBFile(args.ligand, removeHs = False, sanitize =
-                False)
         molName = args.ligand
-        writeScores(removeAllAtoms(mol))
+        print "before remove"
+        all = removeAllAtoms(lig, size, center(lig), True)
+        print "before frags"
+        uniqName = uniq(args.ligand)
+        frags = fragment(uniqName)
+        for index in all:
+            all[index] += frags[index]
+
+        writeScores(all)
 
     elif args.color_receptor:
-        mol = Chem.MolFromPDBFile(args.receptor, removeHs = False, sanitize =
-                False)
         molName = args.receptor
-
-    else:
-        parser.error("You must specify --color_ligand or --color_receptor")
-
-        if not args.size:
-            print("No size entered, defaulting to 23.5")
-            size = 23.5
-        if not args.center and not args.center_around:
-            print("No center entered, centering around ligand")
-            cen = Chem.MolFromPDBFile(args.center_around)
-            cenCoords = center(cen)
-
-    if args.size:
-        size = args.size
-        if args.center:
-            print("Removing cube of edge length " +str(args.size)+ " around \
-                    point ["+str(args.center[0])+ ", "+str(args.center[1])+"\
-                    , "+str(args.center[2])+"]")
-            color(mol, args.size, args.center[0], args.center[1]\
-                    , args.center[2])
-        elif(args.center_around):
-            print("Removing cube of edge length "+str(args.size)+ " around "\
-                    +args.center_around)
-            cenCoords = center(cen)
-            color(mol, args.size,cenCoords[0],cenCoords[1],cenCoords[2] )
-        else:
-            print("Removing cube of edge length " +str(args.size)+ " around point [0,0,0]")
-            color(mol, args.size)
-    else:
-       if args.center:
-            parser.error("--center requires --size")
-       if args.center_around:
-            parser.error("--center_around requires --size")
-       if args.color_ligand:
-            print("No size input, checking every atom")
-    '''
+        scores = removeResidues(rec)
+        writeScores(residues)
 
 if __name__ == "__main__":
     main()
-
 
