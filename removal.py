@@ -11,13 +11,13 @@ import re
 import string
 import createsmartsdescriptors
 
-def score(recName):
-        g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina','--score_only', \
-                            '-r', recName, '-l', ligName, '-o', 'min.sdf', \
-                            '--cnn_scoring', '--autobox_ligand', ligName, \
-                            '--cnn_model' , model, '--cnn_weights', weights, \
-                            '--cpu', '1', '--cnn_rotation', '24', '--gpu',\
-                            '--addH','0']
+def score(recName, ligName):
+        g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina',\
+                    '--score_only','-r', recName, '-l', ligName, '-o',\
+                    'min.sdf','--cnn_scoring', '--autobox_ligand', ligName,\
+                    '--cnn_model' , args.cnn_model, '--cnn_weights',\
+                    args.cnn_weights, '--cpu', '1', '--cnn_rotation', '24', \
+                    '--gpu','--addH','0']
 
         output = None
 
@@ -39,17 +39,15 @@ def writeScores(scoreDict):
     orig = open(hMolName, 'r')
     out = open(fileName, 'w')
 
-    scoreList = [1.54, 2.66, 3.6, 4.55, 5.99999]
-    counter = 0
-
-    out.write("CNN MODEL: "+model+'\n')
-    out.write("CNN WEIGHTS: "+weights+'\n')
+    out.write("CNN MODEL: "+args.cnn_model+'\n')
+    out.write("CNN WEIGHTS: "+args.cnn_weights+'\n')
     for line in orig:
             if "ATOM" in line or "HETATM" in line:
                 index = line[6:11]
+                index = int(index)
                 newLine = line[0:61]
-                if int(index) in scoreDict:
-                    numString = '%.2f' % scoreList[counter]
+                if index in scoreDict:
+                    numString = '%.2f' % scoreDict[index]
                 else:
                     numString = '%.2f' % 0.00
 
@@ -57,14 +55,14 @@ def writeScores(scoreDict):
                 newLine = (newLine + '%6s' + line[67:82]) % numString
                 #newLine = newLine + '\n'
                 out.write(newLine)
-                counter = (counter + 1) % len(scoreList)
             else:
                 out.write(line)
 
     out.close()
 
-def removeAndScore(molName, list, cenCoords):
+def removeAndScore(molName, list):
     mol = Chem.MolFromPDBFile(molName)
+    cenCoords = center(mol)
     inRange = True
     if args.color_receptor:
         conf = mol.GetConformers()[0]
@@ -132,32 +130,75 @@ def removeAndScore(molName, list, cenCoords):
     else: #not in range
         return None
 
-def removeResidues():
-#lists all residues to pass to checkResidues()
+def removeResidues(hRecName):
+    
+    #removes any CONECT record containing atom
+    #results in missing bonds that shouldn't be removed
 
-#FIND FIRST RESIDUE NUMBER
-#ITERATE THROUGH NUMBERS
-#IF NUMBER NOT CURRENT, DO NOT WRITE
-
+    originalScore = score(hRecName, hLigName)
+    print("Original Score: %f") % originalScore
     scoreDict = {}
     orig = open(hRecName, 'r')
     res = ""
-    resList = []
+    atomList = []
+
+    pdbText = []
+    
     for line in orig:
-        if not "CON" in line:
-            if not "END" in line:
-                if not "TER" in line:
-                    if line[23:27] !=  res:
-                        score = removeAndScore(mol, resList, center(mol))
-                        if score:
-                            print score
-                            for index in resList:
-                                scoreDict[index] = score
-                        res = line[23:27]
-                        resList = []
-                        resList.append(int(string.strip(line[6:11])))
-                    else:
-                        resList.append(int(string.strip(line[6:11])))
+        pdbText.append(line)
+    orig.close()
+
+    for line in pdbText:
+        if 'END' in line:
+            break
+        if 'ATOM' in line or 'HETATM' in line:
+            
+            #to avoid removing each residue twice
+            if line[77:80] == 'H  ':
+                break
+            if line[23:27] !=  res:
+                res = line[23:27]
+                print(res)
+                scoreRead = open(hRecName, 'r')
+                temp = open("temp.pdb", 'w')
+
+                #find all atoms in residue
+                for line in pdbText:
+                    if "HETATM" in line or "ATOM" in line:
+                        if line[23:27] == res:
+                            atomList.append(string.strip(line[6:11]))
+
+                atomList = [int(item) for item in atomList]
+                print atomList
+                for line in pdbText:
+
+                    #remove all relevant CONECT records
+                    if "CONECT" in line:
+                        atoms = [int(x) for x in string.split(line) if x.isdigit()]
+                        write = True
+                        for index in atomList:
+                            if index in atoms:
+                                write = False
+                        if write:
+                            temp.write(line)
+
+                    #remove all relevant ATOM and HETATM records
+                    if "ATOM" in line or "HETATM" in line:
+                        if line[6:11] not in atomList:
+                            temp.write(line)
+
+                temp.close()
+
+                newScore = score('temp.pdb', hLigName)
+                diff = originalScore - newScore
+                diff = (diff * 1000) / len(atomList)
+                
+                print diff
+                for index in atomList:
+                    scoreDict[index] = diff
+                atomList = []
+
+    print(scoreDict)
     return scoreDict
 
 def center(mol):
@@ -301,15 +342,12 @@ def addHydrogens(molName):
 
 def main():
 
-    '''
     global molName, model, weights, hMolName
     model = "model goes here"
     weights = "weights goes here"
     molName = "3gvu_rec.pdb"
     hMolName = addHydrogens(molName)
     print hMolName
-    writeScores({1:2.34,2:4.55,4:6.89})
-    '''
 
     parser = argparse.ArgumentParser(description="Generates a .sdf file by \
                                         removing each atom from a molecule")
@@ -330,6 +368,7 @@ def main():
 
     global args
     args = parser.parse_args()
+    writeScores({1:2.34,2:4.55,4:6.89})
     print "start"
 
     if not args.color_ligand and not args.color_receptor:
@@ -347,6 +386,8 @@ def main():
     if not args.size and args.center_around:
             parser.error("--center_around requires --size")
 
+    writeScores(removeResidues("3gvu_rec_h.pdb"))
+    '''
     if args.color_ligand:
         molName = args.ligand
         print "before remove"
@@ -364,6 +405,7 @@ def main():
         scores = removeResidues(rec)
         writeScores(residues)
 
+    '''
 if __name__ == "__main__":
     main()
 
