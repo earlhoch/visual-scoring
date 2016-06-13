@@ -34,7 +34,7 @@ def score(recName, ligName):
         return cnnScore
 
 
-def writeScores(scoreDict):
+def writeScores(hMolName, scoreDict):
     fileName = molName.split(".")[0]+"_colored.pdb" 
     orig = open(hMolName, 'r')
     out = open(fileName, 'w')
@@ -59,9 +59,10 @@ def writeScores(scoreDict):
                 out.write(line)
 
     out.close()
+    print("Output written to: " + fileName)
 
-def removeAndScore(molName, list):
-    mol = Chem.MolFromPDBFile(molName)
+def removeAndScore(mol, list):
+    #mol = Chem.MolFromPDBFile(molName)
     cenCoords = center(mol)
     inRange = True
     if args.color_receptor:
@@ -87,35 +88,43 @@ def removeAndScore(molName, list):
                                             break
     counter = 0
     if inRange:
-        if colorLig:
-            orig = open(ligName,'r')
+        if args.color_ligand:
+            orig = open(hLigName,'r')
         else:
-            orig = open(recName, 'r')
+            orig = open(hRecName, 'r')
         writer = open("temp.pdb",'w')
 
         for line in orig:
     #        print(counter)
             if 'CON' in line:
                 #writer.write(line)
-                break
+                split = string.split(line)
+                newLine = "CONECT"
+                for item in split:
+                    if item != 'CONECT':
+                        if int(item) not in list:
+                            newLine = (newLine + "%5s") % item
+                #if int(split[1]) not in list and int(split[2]) not in list:
+                newLine = newLine + "\n"
+                if len(string.split(newLine)) > 2:
+                    writer.write(newLine)
             if 'END' in line:
                 writer.write(line)
                 break
-            index = int(string.strip(line[6:11]))
-    #        print("INDEX: %s") % (index)
-            
-            if index not in list:
-                counter = counter+1
-                writer.write(line)
-#            else:
-#                print("skipping line")
+            if 'HETATM' in line or 'ATOM' in line:
+                index = int(string.strip(line[6:11]))
+        #        print("INDEX: %s") % (index)
+                if index not in list:
+                    counter = counter+1
+                    writer.write(line)
+    #            else:
+    #                print("skipping line")
 
-        print("%s lines written") % (counter)
         writer.close()
 
         print(list)
 
-        if colorLig:
+        if args.color_ligand:
             scoreVal = score(hRecName,"temp.pdb" )
         else:
             scoreVal = score("temp.pdb",hLigName)
@@ -124,18 +133,16 @@ def removeAndScore(molName, list):
         diff = originalScore - scoreVal
         print diff
 
-        #divided by number of atoms in group to avoid bias in large residues
+        #divided by number of atoms in group to avoid bias towards large groups
         return diff / len(list)
 
     else: #not in range
         return None
 
 def removeResidues(hRecName):
-    
     #removes any CONECT record containing atom
     #results in missing bonds that shouldn't be removed
 
-    originalScore = score(hRecName, hLigName)
     print("Original Score: %f") % originalScore
     scoreDict = {}
     orig = open(hRecName, 'r')
@@ -206,93 +213,95 @@ def center(mol):
     cen = rdMolTransforms.ComputeCentroid(conf)
     return (cen.x, cen.y, cen.z)
 
-def removeAllAtoms(mol, size, cenCoords, colorLig):
-    #removes all atoms within range
+def removeAllAtoms(molName):
+    #list all atoms to pass to removeAndScore
+    mol = Chem.MolFromPDBFile(molName)
 
-    if colorLig:
-        pdbText = open(ligName, 'r')
-
-    else:
-        pdbText = open(ligName, 'r')
-        x = cenCoords[0]
-        y = cenCoords[1]
-        z = cenCoords[2]
-        allowedDist = float(size)/2
+    pdbText = open(molName, 'r')
 
     scoreDict = {}
-    conf = mol.GetConformer()
-    numAtoms = mol.GetNumAtoms()
-
     #retrieve all atom indices
     for line in pdbText:
-        index = int(string.strip(line[6:11]))
-        if index >= numAtoms:
-            break
-        inRange=True
+        if 'ATOM' in line or 'HETATM' in line:
 
-        #bound check only necessary for receptor
-        if not colorLig:
-            inRange = False
-            pos = conf.GetAtomPosition(index)
-            if pos.x < x+allowedDist: #positive bounds
-                        if pos.y < y+allowedDist:
-                            if pos.z < z+allowedDist:
-                                if pos.x > x-allowedDist: #negative bounds
-                                    if pos.y > y-allowedDist:
-                                        if pos.z > z-allowedDist:
-                                            inRange = True
+            #to avoid removing each residue twice
+            if line[77:80] == 'H  ':
+                break
+            index = int(string.strip(line[6:11]))
 
-        if inRange:
+            diff = removeAndScore(mol, [index])
+            scoreDict[index] = diff
+            print "Assigning %s" % index
+            '''
+            if index >= numAtoms:
+                break
+            inRange=True
 
-            #have to iterate through file from beginning again
-            if colorLig:
-                pdbText2 = open(ligName,'r')
-            else:
-                pdbText2 = open(recName, 'r')
-            writer = open("temp.pdb",'w')
+            #bound check only necessary for receptor
+            if not colorLig:
+                inRange = False
+                pos = conf.GetAtomPosition(index)
+                if pos.x < x+allowedDist: #positive bounds
+                            if pos.y < y+allowedDist:
+                                if pos.z < z+allowedDist:
+                                    if pos.x > x-allowedDist: #negative bounds
+                                        if pos.y > y-allowedDist:
+                                            if pos.z > z-allowedDist:
+                                                inRange = True
 
-            for line in pdbText2:
-                if 'CON' in line:
-                    break
-                if 'END' in line:
-                    break
+            if inRange:
+                #have to iterate through file from beginning again
+                pdbText2 = open(molName,'r')
+                writer = open("temp.pdb",'w')
 
-                testIndex = int(string.strip(line[6:11]))
-#                print("TEST" + str(testIndex))
-        #        print("INDEX: %s") % (index)
+                for line in pdbText2:
+                    if 'CON' in line:
+                        writer.write(line)
+                    if 'END' in line:
+                        break
+                    if 'HETATM' in line or 'ATOM' in line:
+                        testIndex = int(string.strip(line[6:11]))
 
-                if index != testIndex:
-                    writer.write(line)
-#                else:
-#                    print("skipping line")
+                        if index != testIndex:
+                            writer.write(line)
 
-            writer.close()
-            if colorLig:
-                print "scoring" + hRecName + " temp.pdb"
-                scoreValue = score(hRecName, "temp.pdb")
-            else:
-                scoreValue = score("temp.pdb", hLigName)
-            print(scoreValue)
-            scoreDict[index] = scoreValue
+                writer.close()
+                if colorLig:
+                    scoreValue = score(hRecName, "temp.pdb")
+                else:
+                    scoreValue = score("temp.pdb", hLigName)
+                if args.verbose:
+                    print "INDEX: %s SCORE: %f" % (index, scoreValue)
+
+                scoreDict[index] = scoreValue
+                '''
 
     return scoreDict
 
 def fragment(molName):
     mol = Chem.MolFromPDBFile(molName)
     avgDict = {} # stores (total score, number of scores) for average
+    returnDict = {}
     for atom in mol.GetAtoms():
-        avgDict[atom.GetIdx()] = [0,0]
+        avgDict[atom.GetIdx() + 1] = [0,0]
     paths = createsmartsdescriptors.computesubgraphsmarts(mol, 6)
     for path in paths:
         indices = mol.GetSubstructMatch(Chem.MolFromSmiles(path))
         print indices
-        score = removeAndScore(mol, indices, center(mol))
-        print score
+
+        #fixes rdkit's index counting
+        newList = []
         for index in indices:
+            newList.append(index + 1)
+
+        score = removeAndScore(mol, indices)
+        print score
+        for index in newList:
             avgDict[index][0] += score
             avgDict[index][1] += 1
 
-    returnDict = {}
+    for atom in mol.GetAtoms():
+        returnDict[atom.GetIdx() + 1] = 0
     for index in avgDict:
         if avgDict[index][1] != 0:
             returnDict[index] = avgDict[index][0] / avgDict[index][1]
@@ -332,23 +341,14 @@ def addHydrogens(molName):
 
     mol = openbabel.OBMol()
     obConv.ReadFile(mol, molName)
-    print mol.NumAtoms()
     mol.AddHydrogens()
-    print mol.NumAtoms()
 
     obConv.WriteFile(mol, newName)
 
     return newName
 
 def main():
-
-    global molName, model, weights, hMolName
-    model = "model goes here"
-    weights = "weights goes here"
-    molName = "3gvu_rec.pdb"
-    hMolName = addHydrogens(molName)
-    print hMolName
-
+    
     parser = argparse.ArgumentParser(description="Generates a .sdf file by \
                                         removing each atom from a molecule")
     receptor = parser.add_argument_group(title="Receptor Coloring Options")
@@ -357,55 +357,77 @@ def main():
     receptor.add_argument('--center_around', type=str, metavar = 'FILE', help='pdb \
                         file containing molecule to center removal cube\
                         (defaults to center around ligand)')
-    parser.add_argument('-l','--ligand', type = str, help = 'ligand for scoring', required=True)
+    parser.add_argument('-l','--ligand', type = str, help = 'ligand for scoring', required = True)
     parser.add_argument('-r','--receptor', type = str, help = 'receptor for \
                         scoring', required = True)
     parser.add_argument('--color_ligand',action = 'store_true')
     parser.add_argument('--color_receptor',action = 'store_true')
+    parser.add_argument('--color_all', action = 'store_true')
     parser.add_argument('--cnn_model',type=str, help = 'model used to score', required = True)
     parser.add_argument('--cnn_weights',type=str,help='weights used to score', required = True)
     parser.add_argument('--verbose',action = 'store_true', help = 'diagnostic output')
 
     global args
     args = parser.parse_args()
-    writeScores({1:2.34,2:4.55,4:6.89})
-    print "start"
 
-    if not args.color_ligand and not args.color_receptor:
-        parser.error("You must specify --color_ligand or --color_receptor")
+    if not args.color_ligand and not args.color_receptor and not args.color_all:
+        parser.error("You must specify --color_ligand, --color_receptor, or\
+                --color_all")
 
     global hRecName
     global hLigName
     hRecName = addHydrogens(args.receptor)
     hLigName = addHydrogens(args.ligand)
 
+    global originalScore
+    originalScore = score(hRecName, hLigName)
+
     if args.verbose:
-        print("\nWeights: "+weights)
-        print("Model: "+model+"\n")
+        print("\nWeights: "+args.cnn_weights+"\n")
+        print("Model: "+args.cnn_model+"\n")
+        print("Original Score: %f") % originalScore
 
     if not args.size and args.center_around:
             parser.error("--center_around requires --size")
 
-    writeScores(removeResidues("3gvu_rec_h.pdb"))
-    '''
-    if args.color_ligand:
+    ligand = False
+    receptor = False
+    if args.color_all:
+       ligand = True
+       receptor = True
+    elif args.color_ligand:
+        ligand = True
+    elif args.color_receptor:
+        receptor = True
+
+    global molName
+    if ligand:
         molName = args.ligand
-        print "before remove"
-        all = removeAllAtoms(lig, size, center(lig), True)
-        print "before frags"
-        uniqName = uniq(args.ligand)
+        if args.verbose:
+            print("Removing all atoms from " + molName)
+        all = removeAllAtoms(hLigName)
+        uniqName = uniq(hLigName)
+        if args.verbose:
+            print("Fragmenting " + molName)
         frags = fragment(uniqName)
+
+        print frags
+        print all
+        #average fragment and iterative removals
         for index in all:
             all[index] += frags[index]
+        for index in all:
+            all[index] = all[index] / 2
 
-        writeScores(all)
+        writeScores(hLigName, all)
 
-    elif args.color_receptor:
+    if receptor:
         molName = args.receptor
+        if args.verbose:
+            print("Removing residues from " + molName)
         scores = removeResidues(rec)
-        writeScores(residues)
+        writeScores(scores)
 
-    '''
 if __name__ == "__main__":
     main()
 
