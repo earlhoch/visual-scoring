@@ -45,13 +45,12 @@ def writeScores(hMolName, scoreDict):
             if "ATOM" in line or "HETATM" in line:
                 index = line[6:11]
                 index = int(index)
-                newLine = line[0:61]
                 if index in scoreDict:
                     numString = '%.2f' % scoreDict[index]
                 else:
                     numString = '%.2f' % 0.00
 
-                newLine = line[0:61]
+                newLine = line[0:60]
                 newLine = (newLine + '%6s' + line[67:82]) % numString
                 #newLine = newLine + '\n'
                 out.write(newLine)
@@ -179,15 +178,27 @@ def removeResidues(hRecName):
                 print atomList
                 for line in pdbText:
 
-                    #remove all relevant CONECT records
+                    #remove all relevant CONECT entries
                     if "CONECT" in line:
-                        atoms = [int(x) for x in string.split(line) if x.isdigit()]
-                        write = True
-                        for index in atomList:
-                            if index in atoms:
-                                write = False
-                        if write:
-                            temp.write(line)
+                        valid = True
+                        split = string.split(line)
+
+                        #remove whole line if first number is being removed
+                        if int(split[1]) in atomList:
+                            valid = False
+
+                        if valid:
+                            for item in split:
+                                if item != "CONECT" and int(item) in atomList:
+                                    split.remove(item)
+                            newLine = ""
+                            for item in split:
+                                newLine += "%5s" % item
+
+                            newLine += '\n'
+
+                            temp.write(newLine)
+
 
                     #remove all relevant ATOM and HETATM records
                     if "ATOM" in line or "HETATM" in line:
@@ -348,7 +359,6 @@ def addHydrogens(molName):
     return newName
 
 def main():
-    
     parser = argparse.ArgumentParser(description="Generates a .sdf file by \
                                         removing each atom from a molecule")
     receptor = parser.add_argument_group(title="Receptor Coloring Options")
@@ -425,8 +435,8 @@ def main():
         molName = args.receptor
         if args.verbose:
             print("Removing residues from " + molName)
-        scores = removeResidues(rec)
-        writeScores(scores)
+        scores = removeResidues(hRecName)
+        writeScores(hRecName, scores)
 
 if __name__ == "__main__":
     main()
