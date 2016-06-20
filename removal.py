@@ -104,9 +104,11 @@ def removeAndScore(mol, list):
                         if int(item) not in list:
                             newLine = (newLine + "%5s") % item
                 #if int(split[1]) not in list and int(split[2]) not in list:
-                newLine = newLine + "\n"
                 if len(string.split(newLine)) > 2:
-                    writer.write(newLine)
+                    printLine = newLine.ljust(70)
+                    print printLine + "a"
+                    printLine += '/n'
+                    writer.write(printLine)
             if 'END' in line:
                 writer.write(line)
                 break
@@ -194,7 +196,7 @@ def removeResidues(hRecName):
                             newLine = ""
                             for item in split:
                                 newLine += "%5s" % item
-
+                            newLine = newLine.ljust(70)
                             newLine += '\n'
 
                             temp.write(newLine)
@@ -202,7 +204,7 @@ def removeResidues(hRecName):
 
                     #remove all relevant ATOM and HETATM records
                     if "ATOM" in line or "HETATM" in line:
-                        if line[6:11] not in atomList:
+                        if int(line[6:11]) not in atomList:
                             temp.write(line)
 
                 temp.close()
