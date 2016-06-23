@@ -3,6 +3,7 @@ from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
 from rdkit.Chem import rdmolops
 import openbabel
+import pybel
 import copy
 import sys
 import argparse
@@ -35,7 +36,9 @@ def score(recName, ligName):
 
 
 def writeScores(hMolName, scoreDict):
-    fileName = molName.split(".")[0]+"_colored.pdb" 
+    fileName = molName.split("/")
+    fileName = fileName[len(fileName)-1]
+    fileName = string.split(fileName, ".")[0]+"_colored.pdb" 
     orig = open(hMolName, 'r')
     out = open(fileName, 'w')
 
@@ -61,8 +64,6 @@ def writeScores(hMolName, scoreDict):
     print("Output written to: " + fileName)
 
 def removeAndScore(mol, list):
-    #mol = Chem.MolFromPDBFile(molName)
-    cenCoords = center(mol)
     inRange = True
     if args.color_receptor:
         conf = mol.GetConformers()[0]
@@ -73,20 +74,31 @@ def removeAndScore(mol, list):
         inRange = False
         numAtoms = mol.GetNumAtoms()
         for index in list:
+            atom = mol.GetAtom(index)
             if index >= numAtoms:
                 return 0
 
             pos = conf.GetAtomPosition(index)
             if pos.x < x+allowedDist: #positive bounds
-                        if pos.y < y+allowedDist:
-                            if pos.z < z+allowedDist:
-                                if pos.x > x-allowedDist: #negative bounds
-                                    if pos.y > y-allowedDist:
-                                        if pos.z > z-allowedDist:
+                        if atom.GetY() < y+allowedDist:
+                            if atom.GetZ() < z+allowedDist:
+                                if atom.GetX() > x-allowedDist: #negative bounds
+                                    if atom.GetY() > y-allowedDist:
+                                        if atom.GetZ() > z-allowedDist:
                                             inRange = True
                                             break
+
     counter = 0
     if inRange:
+        atomList = []
+        for index in list:
+            atom = mol.GetAtom(index)
+            atomList.append(atom.GetIdx())
+            for neighbor in openbabel.OBAtomAtomIter(atom):
+                if neighbor.GetAtomicNum() == 1:
+                    atomList.append(neighbor.GetIdx())
+            
+        print atomList
         if args.color_ligand:
             orig = open(hLigName,'r')
         else:
@@ -96,6 +108,35 @@ def removeAndScore(mol, list):
         for line in orig:
     #        print(counter)
             if 'CON' in line:
+
+                if "CONECT" in line:
+                    valid = True
+                    split = string.split(line)
+
+                    #remove whole line if first number is being removed
+                    if int(split[1]) in atomList:
+                        valid = False
+
+                    if valid:
+                        remList = []
+                        for item in split:
+                            if item != "CONECT":
+                                if int(item) in atomList:
+                                    remList.append(item)
+
+                        for item in remList:
+                            split.remove(item)
+                        newLine = ""
+                        for item in split:
+                            newLine += "%5s" % item
+                        newLine = newLine.ljust(70)
+                        newLine += '\n'
+
+                        writer.write(newLine)
+
+
+
+                '''
                 #writer.write(line)
                 split = string.split(line)
                 newLine = "CONECT"
@@ -106,9 +147,12 @@ def removeAndScore(mol, list):
                 #if int(split[1]) not in list and int(split[2]) not in list:
                 if len(string.split(newLine)) > 2:
                     printLine = newLine.ljust(70)
-                    print printLine + "a"
-                    printLine += '/n'
+                    printLine += '\n'
                     writer.write(printLine)
+                '''
+
+
+
             if 'END' in line:
                 writer.write(line)
                 break
@@ -122,8 +166,6 @@ def removeAndScore(mol, list):
     #                print("skipping line")
 
         writer.close()
-
-        print(list)
 
         if args.color_ligand:
             scoreVal = score(hRecName,"temp.pdb" )
@@ -144,7 +186,6 @@ def removeResidues(hRecName):
     #removes any CONECT record containing atom
     #results in missing bonds that shouldn't be removed
 
-    print("Original Score: %f") % originalScore
     scoreDict = {}
     orig = open(hRecName, 'r')
     res = ""
@@ -156,18 +197,14 @@ def removeResidues(hRecName):
         pdbText.append(line)
     orig.close()
 
+    resList = []
     for line in pdbText:
-        if 'END' in line:
-            break
-        if 'ATOM' in line or 'HETATM' in line:
-            
-            #to avoid removing each residue twice
-            if line[77:80] == 'H  ':
-                break
-            if line[23:27] !=  res:
-                res = line[23:27]
-                print(res)
-                scoreRead = open(hRecName, 'r')
+        if "ATOM" in line or "HETATM" in line:
+            if line[23:27] not in resList:
+                resList.append(line[23:27])
+
+
+    for res in resList:
                 temp = open("temp.pdb", 'w')
 
                 #find all atoms in residue
@@ -210,15 +247,16 @@ def removeResidues(hRecName):
                 temp.close()
 
                 newScore = score('temp.pdb', hLigName)
+                print "Score: \t%s" % newScore
                 diff = originalScore - newScore
+                print "Diff: \t%s" % diff
                 diff = (diff * 1000) / len(atomList)
+                print "Atom: \t%s\n" % diff
                 
-                print diff
                 for index in atomList:
                     scoreDict[index] = diff
                 atomList = []
 
-    print(scoreDict)
     return scoreDict
 
 def center(mol):
@@ -228,11 +266,22 @@ def center(mol):
 
 def removeAllAtoms(molName):
     #list all atoms to pass to removeAndScore
-    mol = Chem.MolFromPDBFile(molName)
+    split = string.split(molName, '.')
+    newName = split[0]+"_h."+split[1]
+
+    obConv = openbabel.OBConversion()
+    obConv.SetInAndOutFormats(split[1], "pdb")
+
+    mol = openbabel.OBMol()
+    obConv.ReadFile(mol, molName)
+
+    print mol.NumAtoms()
+
 
     pdbText = open(molName, 'r')
 
     scoreDict = {}
+
     #retrieve all atom indices
     for line in pdbText:
         if 'ATOM' in line or 'HETATM' in line:
@@ -291,7 +340,16 @@ def removeAllAtoms(molName):
 
     return scoreDict
 
-def fragment(molName):
+def fragment(molName, hMolName):
+    split = string.split(hMolName, '.')
+    newName = split[0]+"_h."+split[1]
+
+    obConv = openbabel.OBConversion()
+    obConv.SetInAndOutFormats(split[1], "pdb")
+
+    oMol = openbabel.OBMol()
+    obConv.ReadFile(oMol, hMolName)
+
     mol = Chem.MolFromPDBFile(molName)
     avgDict = {} # stores (total score, number of scores) for average
     returnDict = {}
@@ -300,14 +358,13 @@ def fragment(molName):
     paths = createsmartsdescriptors.computesubgraphsmarts(mol, 6)
     for path in paths:
         indices = mol.GetSubstructMatch(Chem.MolFromSmiles(path))
-        print indices
 
         #fixes rdkit's index counting
         newList = []
         for index in indices:
             newList.append(index + 1)
 
-        score = removeAndScore(mol, indices)
+        score = removeAndScore(oMol, newList)
         print score
         for index in newList:
             avgDict[index][0] += score
@@ -315,11 +372,10 @@ def fragment(molName):
 
     for atom in mol.GetAtoms():
         returnDict[atom.GetIdx() + 1] = 0
+
     for index in avgDict:
         if avgDict[index][1] != 0:
             returnDict[index] = avgDict[index][0] / avgDict[index][1]
-            print index
-            print returnDict[index]
 
     return returnDict
 
@@ -334,7 +390,7 @@ def uniq(molName):
         sys.exit(0)
 
     split = string.split(molName, ".")
-    newName = split[0] + "_uniq." + split[1]
+    newName = split[0] + "_uniq.pdb"
     out = open(newName, 'w')
 
     out.write(output)
@@ -346,8 +402,10 @@ def addHydrogens(molName):
     #uses openbabel to best simulate gnina's hydrogen addition
     #file has '_h' appended to end
 
+    split = string.split(molName, '/')
+    molName = split[len(split)-1]
     split = string.split(molName, '.')
-    newName = split[0]+"_h."+split[1]
+    newName = split[0]+"_h.pdb"
 
     obConv = openbabel.OBConversion()
     obConv.SetInAndOutFormats(split[1], "pdb")
@@ -395,7 +453,7 @@ def main():
     originalScore = score(hRecName, hLigName)
 
     if args.verbose:
-        print("\nWeights: "+args.cnn_weights+"\n")
+        print("\nWeights: "+args.cnn_weights)
         print("Model: "+args.cnn_model+"\n")
         print("Original Score: %f") % originalScore
 
@@ -415,13 +473,19 @@ def main():
     global molName
     if ligand:
         molName = args.ligand
+        molName = string.split(molName,  "/")
+        molName = molName[len(molName)-1]
+        molName = string.split(molName, ".")
+        molName = molName[0] + ".pdb"
+        uniqName = uniq(molName)
+
+        if args.verbose:
+            print("Fragmenting " + molName)
+        frags = fragment(uniqName, hLigName)
+
         if args.verbose:
             print("Removing all atoms from " + molName)
         all = removeAllAtoms(hLigName)
-        uniqName = uniq(hLigName)
-        if args.verbose:
-            print("Fragmenting " + molName)
-        frags = fragment(uniqName)
 
         print frags
         print all
@@ -435,8 +499,13 @@ def main():
 
     if receptor:
         molName = args.receptor
+        molName = string.split(molName,  "/")
+        molName = molName[len(molName)-1]
+        molName = string.split(molName, ".")
+        molName = molName[0] + ".pdb"
+        uniqName = uniq(molName)
         if args.verbose:
-            print("Removing residues from " + molName)
+            print("Removing residues from " + molName + "\n")
         scores = removeResidues(hRecName)
         writeScores(hRecName, scores)
 
