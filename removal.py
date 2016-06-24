@@ -65,7 +65,7 @@ def writeScores(hMolName, scoreDict):
 
 def removeAndScore(mol, list):
     inRange = True
-    if args.color_receptor:
+    if isRec:
         conf = mol.GetConformers()[0]
         x = cenCoords[0]
         y = cenCoords[1]
@@ -99,9 +99,9 @@ def removeAndScore(mol, list):
                     atomList.append(neighbor.GetIdx())
             
         print atomList
-        if args.color_ligand:
+        if isLig:
             orig = open(hLigName,'r')
-        else:
+        elif isRec:
             orig = open(hRecName, 'r')
         writer = open("temp.pdb",'w')
 
@@ -167,17 +167,19 @@ def removeAndScore(mol, list):
 
         writer.close()
 
-        if args.color_ligand:
+        if isLig:
             scoreVal = score(hRecName,"temp.pdb" )
-        else:
+        elif isRec:
             scoreVal = score("temp.pdb",hLigName)
 
-        print scoreVal
+        print "Score: \t%s" % scoreVal
         diff = originalScore - scoreVal
-        print diff
+        print "Diff: \t%s" % diff
 
         #divided by number of atoms in group to avoid bias towards large groups
-        return diff / len(list)
+        adj = diff * 100 / len(list)
+        print "Atom: \t%s\n" % adj
+        return adj
 
     else: #not in range
         return None
@@ -250,7 +252,7 @@ def removeResidues(hRecName):
                 print "Score: \t%s" % newScore
                 diff = originalScore - newScore
                 print "Diff: \t%s" % diff
-                diff = (diff * 1000) / len(atomList)
+                diff = (diff * 100) / len(atomList)
                 print "Atom: \t%s\n" % diff
                 
                 for index in atomList:
@@ -365,7 +367,7 @@ def fragment(molName, hMolName):
             newList.append(index + 1)
 
         score = removeAndScore(oMol, newList)
-        print score
+
         for index in newList:
             avgDict[index][0] += score
             avgDict[index][1] += 1
@@ -471,7 +473,12 @@ def main():
         receptor = True
 
     global molName
+    
+    global isLig
+    global isRec
     if ligand:
+        isLig = True
+        isRec = False
         molName = args.ligand
         molName = string.split(molName,  "/")
         molName = molName[len(molName)-1]
@@ -498,6 +505,8 @@ def main():
         writeScores(hLigName, all)
 
     if receptor:
+        isLig = False
+        isRec = True
         molName = args.receptor
         molName = string.split(molName,  "/")
         molName = molName[len(molName)-1]
