@@ -23,9 +23,10 @@ def score(recName, ligName):
         output = None
 
         try:
-            output= subprocess.check_output(g_args, stdin=None, stderr=None)
+            output = subprocess.check_output(g_args, stdin=None, stderr=None)
         except:
             sys.exit(0)
+
         cnnScore = None
 
         pattern = re.compile('-*d+\.?\d*')
@@ -33,7 +34,6 @@ def score(recName, ligName):
                 if "CNNscore" in line:
                         cnnScore = (float)(re.findall('[-*]?\d+\.\d+', line)[0])
         return cnnScore
-
 
 def writeScores(hMolName, scoreDict):
     fileName = molName.split("/")
@@ -63,130 +63,115 @@ def writeScores(hMolName, scoreDict):
     out.close()
     print("Output written to: " + fileName)
 
-def removeAndScore(mol, list):
-    inRange = True
-    if isRec:
-        conf = mol.GetConformers()[0]
-        x = cenCoords[0]
-        y = cenCoords[1]
-        z = cenCoords[2]
-        allowedDist = float(size)/2
-        inRange = False
-        numAtoms = mol.GetNumAtoms()
-        for index in list:
-            atom = mol.GetAtom(index)
-            if index >= numAtoms:
-                return 0
+def inRange(mol, atomList):
+    #returns False iff all atoms are out of range
+    x = cenCoords[0]
+    y = cenCoords[1]
+    z = cenCoords[2]
+    allowedDist = float(args.size)/2
+    numAtoms = mol.NumAtoms()
+    for index in atomList:
+        atom = mol.GetAtom(index)
+        if index >= numAtoms:
+            return 0
+        if atom.GetX() < x+allowedDist: #positive bounds
+            if atom.GetY() < y+allowedDist:
+                if atom.GetZ() < z+allowedDist:
+                    if atom.GetX() > x-allowedDist: #negative bounds
+                        if atom.GetY() > y-allowedDist:
+                            if atom.GetZ() > z-allowedDist:
+                                return True
 
-            pos = conf.GetAtomPosition(index)
-            if pos.x < x+allowedDist: #positive bounds
-                        if atom.GetY() < y+allowedDist:
-                            if atom.GetZ() < z+allowedDist:
-                                if atom.GetX() > x-allowedDist: #negative bounds
-                                    if atom.GetY() > y-allowedDist:
-                                        if atom.GetZ() > z-allowedDist:
-                                            inRange = True
-                                            break
+    return False
 
-    counter = 0
-    if inRange:
-        atomList = []
-        for index in list:
-            atom = mol.GetAtom(index)
-            atomList.append(atom.GetIdx())
+def removeAndScore(mol, inList, removeHs = True):
+    #returns relative contribution of atoms in inList
+    #already transformed and ready to write
+    atomList = []
+
+    for index in inList:
+        atom = mol.GetAtom(index)
+        atomList.append(atom.GetIdx())
+
+        #adds any attached hydrogens to removal list
+        if removeHs:
             for neighbor in openbabel.OBAtomAtomIter(atom):
                 if neighbor.GetAtomicNum() == 1:
                     atomList.append(neighbor.GetIdx())
-            
-        print atomList
-        if isLig:
-            orig = open(hLigName,'r')
-        elif isRec:
-            orig = open(hRecName, 'r')
-        writer = open("temp.pdb",'w')
 
-        for line in orig:
-    #        print(counter)
-            if 'CON' in line:
+    if isRec:
+        if not inRange(mol, atomList):
+            return None
 
-                if "CONECT" in line:
-                    valid = True
-                    split = string.split(line)
+    print atomList
+    if isLig:
+        orig = open(hLigName,'r')
+    elif isRec:
+        orig = open(hRecName, 'r')
+    writer = open("temp.pdb",'w')
 
-                    #remove whole line if first number is being removed
-                    if int(split[1]) in atomList:
-                        valid = False
+    for line in orig:
+        if "CONECT" in line:
+            valid = True
 
-                    if valid:
-                        remList = []
-                        for item in split:
-                            if item != "CONECT":
-                                if int(item) in atomList:
-                                    remList.append(item)
+            #remove whole line if first number is being removed
+            if int(line[6:11]) in atomList:
+                valid = False
 
-                        for item in remList:
-                            split.remove(item)
-                        newLine = ""
-                        for item in split:
-                            newLine += "%5s" % item
-                        newLine = newLine.ljust(70)
-                        newLine += '\n'
+            if valid:
 
-                        writer.write(newLine)
+                keepList = []
+                keepList.append(line[6:11])
+                if not line[11:16].isspace():
+                    if not int(line[11:16]) in atomList:
+                        keepList.append(line[11:16])
+                if not line[16:21].isspace():
+                    if not int(line[16:21]) in atomList:
+                        keepList.append(line[16:21])
+                if not line[21:26].isspace():
+                    if not int(line[21:26]) in atomList:
+                        keepList.append(line[21:26])
+                if not line[26:31].isspace():
+                    if not int(line[26:31]) in atomList:
+                        keepList.append(line[26:31])
 
-
-
-                '''
-                #writer.write(line)
-                split = string.split(line)
                 newLine = "CONECT"
-                for item in split:
-                    if item != 'CONECT':
-                        if int(item) not in list:
-                            newLine = (newLine + "%5s") % item
-                #if int(split[1]) not in list and int(split[2]) not in list:
-                if len(string.split(newLine)) > 2:
-                    printLine = newLine.ljust(70)
-                    printLine += '\n'
-                    writer.write(printLine)
-                '''
+                for item in keepList:
+                    newLine += "%5s" % item
+                newLine = newLine.ljust(70)
+                newLine += '\n'
 
+                writer.write(newLine)
 
-
-            if 'END' in line:
+        if 'END' in line:
+            writer.write(line)
+            break
+        if 'HETATM' in line or 'ATOM' in line:
+            index = int(string.strip(line[6:11]))
+            if index not in atomList:
                 writer.write(line)
-                break
-            if 'HETATM' in line or 'ATOM' in line:
-                index = int(string.strip(line[6:11]))
-        #        print("INDEX: %s") % (index)
-                if index not in list:
-                    counter = counter+1
-                    writer.write(line)
-    #            else:
-    #                print("skipping line")
 
-        writer.close()
+    writer.close()
 
-        if isLig:
-            scoreVal = score(hRecName,"temp.pdb" )
-        elif isRec:
-            scoreVal = score("temp.pdb",hLigName)
+    if isLig:
+        scoreVal = score(hRecName,"temp.pdb" )
+    elif isRec:
+        scoreVal = score("temp.pdb",hLigName)
 
-        print "Score: \t%s" % scoreVal
-        diff = originalScore - scoreVal
-        print "Diff: \t%s" % diff
+    print "Score: \t%s" % scoreVal
+    diff = originalScore - scoreVal
+    print "Diff: \t%s" % diff
 
-        #divided by number of atoms in group to avoid bias towards large groups
-        adj = diff * 100 / len(list)
-        print "Atom: \t%s\n" % adj
-        return adj
-
-    else: #not in range
-        return None
+    #divided by number of atoms in group to avoid bias towards large groups
+    adj = diff * 100 / len(atomList)
+    print "Atom: \t%s\n" % adj
+    return adj
 
 def removeResidues(hRecName):
-    #removes any CONECT record containing atom
-    #results in missing bonds that shouldn't be removed
+
+    obConv = openbabel.OBConversion()
+    mol = openbabel.OBMol()
+    obConv.ReadFile(mol, hRecName)
 
     scoreDict = {}
     orig = open(hRecName, 'r')
@@ -194,11 +179,12 @@ def removeResidues(hRecName):
     atomList = []
 
     pdbText = []
-    
+
     for line in orig:
         pdbText.append(line)
     orig.close()
 
+    #stores each residue id once
     resList = []
     for line in pdbText:
         if "ATOM" in line or "HETATM" in line:
@@ -206,6 +192,7 @@ def removeResidues(hRecName):
                 resList.append(line[23:27])
 
 
+    #iterates through each residue id
     for res in resList:
                 temp = open("temp.pdb", 'w')
 
@@ -216,55 +203,26 @@ def removeResidues(hRecName):
                             atomList.append(string.strip(line[6:11]))
 
                 atomList = [int(item) for item in atomList]
-                print atomList
-                for line in pdbText:
+                resScores = removeAndScore(mol, atomList, removeHs = False)
+                if resScores:
+                    for index in atomList:
+                        scoreDict[index] = resScores
 
-                    #remove all relevant CONECT entries
-                    if "CONECT" in line:
-                        valid = True
-                        split = string.split(line)
-
-                        #remove whole line if first number is being removed
-                        if int(split[1]) in atomList:
-                            valid = False
-
-                        if valid:
-                            for item in split:
-                                if item != "CONECT" and int(item) in atomList:
-                                    split.remove(item)
-                            newLine = ""
-                            for item in split:
-                                newLine += "%5s" % item
-                            newLine = newLine.ljust(70)
-                            newLine += '\n'
-
-                            temp.write(newLine)
-
-
-                    #remove all relevant ATOM and HETATM records
-                    if "ATOM" in line or "HETATM" in line:
-                        if int(line[6:11]) not in atomList:
-                            temp.write(line)
-
-                temp.close()
-
-                newScore = score('temp.pdb', hLigName)
-                print "Score: \t%s" % newScore
-                diff = originalScore - newScore
-                print "Diff: \t%s" % diff
-                diff = (diff * 100) / len(atomList)
-                print "Atom: \t%s\n" % diff
-                
-                for index in atomList:
-                    scoreDict[index] = diff
                 atomList = []
 
     return scoreDict
 
-def center(mol):
-    conf = mol.GetConformers()[0]
-    cen = rdMolTransforms.ComputeCentroid(conf)
-    return (cen.x, cen.y, cen.z)
+def ligCenter():
+    #returns center of ligand
+    obConv = openbabel.OBConversion()
+    obConv.SetInAndOutFormats("pdb", "pdb")
+
+    mol = openbabel.OBMol()
+    obConv.ReadFile(mol, hLigName)
+
+
+    cen = mol.Center(0)
+    return (cen.GetX(), cen.GetY(), cen.GetZ())
 
 def removeAllAtoms(molName):
     #list all atoms to pass to removeAndScore
@@ -277,9 +235,6 @@ def removeAllAtoms(molName):
     mol = openbabel.OBMol()
     obConv.ReadFile(mol, molName)
 
-    print mol.NumAtoms()
-
-
     pdbText = open(molName, 'r')
 
     scoreDict = {}
@@ -288,57 +243,12 @@ def removeAllAtoms(molName):
     for line in pdbText:
         if 'ATOM' in line or 'HETATM' in line:
 
-            #to avoid removing each residue twice
-            if line[77:80] == 'H  ':
-                break
-            index = int(string.strip(line[6:11]))
-
-            diff = removeAndScore(mol, [index])
-            scoreDict[index] = diff
-            print "Assigning %s" % index
-            '''
-            if index >= numAtoms:
-                break
-            inRange=True
-
-            #bound check only necessary for receptor
-            if not colorLig:
-                inRange = False
-                pos = conf.GetAtomPosition(index)
-                if pos.x < x+allowedDist: #positive bounds
-                            if pos.y < y+allowedDist:
-                                if pos.z < z+allowedDist:
-                                    if pos.x > x-allowedDist: #negative bounds
-                                        if pos.y > y-allowedDist:
-                                            if pos.z > z-allowedDist:
-                                                inRange = True
-
-            if inRange:
-                #have to iterate through file from beginning again
-                pdbText2 = open(molName,'r')
-                writer = open("temp.pdb",'w')
-
-                for line in pdbText2:
-                    if 'CON' in line:
-                        writer.write(line)
-                    if 'END' in line:
-                        break
-                    if 'HETATM' in line or 'ATOM' in line:
-                        testIndex = int(string.strip(line[6:11]))
-
-                        if index != testIndex:
-                            writer.write(line)
-
-                writer.close()
-                if colorLig:
-                    scoreValue = score(hRecName, "temp.pdb")
-                else:
-                    scoreValue = score("temp.pdb", hLigName)
-                if args.verbose:
-                    print "INDEX: %s SCORE: %f" % (index, scoreValue)
-
-                scoreDict[index] = scoreValue
-                '''
+            #hydrogens accounted for in removeAndScore
+            if line[77:80] != 'H  ':
+                index = int(string.strip(line[6:11]))
+                diff = removeAndScore(mol, [index])
+                if diff:
+                    scoreDict[index] = diff
 
     return scoreDict
 
@@ -366,11 +276,11 @@ def fragment(molName, hMolName):
         for index in indices:
             newList.append(index + 1)
 
-        score = removeAndScore(oMol, newList)
-
-        for index in newList:
-            avgDict[index][0] += score
-            avgDict[index][1] += 1
+        scoreVal = removeAndScore(oMol, newList)
+        if scoreVal:
+            for index in newList:
+                avgDict[index][0] += scoreVal
+                avgDict[index][1] += 1
 
     for atom in mol.GetAtoms():
         returnDict[atom.GetIdx() + 1] = 0
@@ -421,6 +331,7 @@ def addHydrogens(molName):
     return newName
 
 def main():
+    
     parser = argparse.ArgumentParser(description="Generates a .sdf file by \
                                         removing each atom from a molecule")
     receptor = parser.add_argument_group(title="Receptor Coloring Options")
@@ -454,6 +365,8 @@ def main():
     global originalScore
     originalScore = score(hRecName, hLigName)
 
+    global cenCoords
+    cenCoords = ligCenter()
     if args.verbose:
         print("\nWeights: "+args.cnn_weights)
         print("Model: "+args.cnn_model+"\n")
@@ -473,9 +386,10 @@ def main():
         receptor = True
 
     global molName
-    
+
     global isLig
     global isRec
+
     if ligand:
         isLig = True
         isRec = False
@@ -487,22 +401,27 @@ def main():
         uniqName = uniq(molName)
 
         if args.verbose:
-            print("Fragmenting " + molName)
-        frags = fragment(uniqName, hLigName)
-
-        if args.verbose:
             print("Removing all atoms from " + molName)
         all = removeAllAtoms(hLigName)
 
-        print frags
-        print all
+        if args.verbose:
+            print("Fragmenting " + molName)
+        frags = fragment(uniqName, hLigName)
+
+        newScores = {}
+
         #average fragment and iterative removals
         for index in all:
-            all[index] += frags[index]
-        for index in all:
-            all[index] = all[index] / 2
+            if index in frags and frags[index] != None:
+                newScores[index] = (all[index] + frags[index]) / 2
+            else:
+                newScores[index] = all[index]
 
-        writeScores(hLigName, all)
+        for index in frags:
+            if not index in newScores:
+                newScores[index] = frags[index]
+
+        writeScores(hLigName, newScores)
 
     if receptor:
         isLig = False
@@ -513,11 +432,13 @@ def main():
         molName = string.split(molName, ".")
         molName = molName[0] + ".pdb"
         uniqName = uniq(molName)
+
         if args.verbose:
             print("Removing residues from " + molName + "\n")
-        scores = removeResidues(hRecName)
-        writeScores(hRecName, scores)
+        resScores = removeResidues(hRecName)
 
+        writeScores(hRecName, resScores) 
+    
 if __name__ == "__main__":
     main()
 
