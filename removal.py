@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 from rdkit import Chem
-from rdkit.Chem import rdMolTransforms
-from rdkit.Chem import rdmolops
 import openbabel
-import pybel
-import copy
 import sys
 import argparse
 import subprocess
@@ -12,6 +8,7 @@ import re
 import string
 import createsmartsdescriptors
 import math
+import os
 
 class ColoredMol:
     def __init__(self, ligName, recName, model, weights, size, outRec = None, outLig = None, no_frag = False, verbose = False):
@@ -40,7 +37,12 @@ class ColoredMol:
         obConv.ReadFile(self.recMol, self.hRecName)
         obConv.ReadFile(self.ligMol, self.hLigName)
 
-        self.uniqLigName = self.uniq(self.ligName)
+        self.uniqLigName = self.uniq(self.hLigName)
+        self.uniqLigMol = Chem.MolFromPDBFile(self.uniqLigName, removeHs = False)
+
+        if not self.uniqLigMol:
+            print("RDKit Read Error")
+            return None
 
         if self.verbose:
             print("\nWeights: "+self.weights)
@@ -217,13 +219,15 @@ class ColoredMol:
             if removeHs:
                 for neighbor in openbabel.OBAtomAtomIter(atom):
                     if neighbor.GetAtomicNum() == 1:
-                        atomList.append(neighbor.GetIdx())
+                        if neighbor.GetIdx() not in inList:
+                            atomList.append(neighbor.GetIdx())
 
         if isRec:
             if not self.inRange(atomList):
                 return None
 
         if self.verbose:
+            atomList.sort()
             print atomList
 
         if isRec:
@@ -292,6 +296,8 @@ class ColoredMol:
         #divided by number of atoms in group to avoid bias towards large groups
         adj = diff * 100 / len(atomList)
         print "Atom: \t%s\n" % adj
+
+        os.remove("temp.pdb")
         return adj
 
     def removeResidues(self):
@@ -366,13 +372,9 @@ class ColoredMol:
         return scoreDict
 
     def fragment(self):
-        split = string.split(self.hLigName, '.')
-        newName = split[0]+"_h."+split[1]
 
-        mol = Chem.MolFromPDBFile(self.uniqLigName)
-        if not mol:
-            print("RDKit Read Error")
-            return None
+        mol = self.uniqLigMol
+        
         avgDict = {} # stores (total score, number of scores) for average
         returnDict = {}
         for atom in mol.GetAtoms():
