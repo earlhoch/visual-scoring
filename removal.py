@@ -64,15 +64,7 @@ class ColoredMol:
                 print("Removing all atoms from " + molName)
             all = self.removeEachAtom()
 
-
             newScores = {}
-
-            #generate correlation for testing
-            #corr = open('frags_vs_iter.dat', 'w')
-            #corr.write("Frags Iter")
-            #for index in all:
-            #    if index in frags and frags[index] !=None:
-            #        corr.write(str(frags[index]) + " " + str(all[index]) + '\n')
 
             #average fragment and iterative removals
             if not self.no_frag and frags != None:
@@ -93,7 +85,6 @@ class ColoredMol:
                 self.writeScores(all, isRec = False)
 
         if self.outRec:
-            print "rec"
 
             #extract file natme from path
             molName = self.recName
@@ -486,92 +477,6 @@ def main():
                                 args.size, args.receptor_output, args.ligand_output, \
                                 no_frag = args.no_frag, verbose = args.verbose)
     coloredmol.color()
-
-    '''
-    global hRecName
-    global hLigName
-    hRecName = addHydrogens(args.receptor)
-    hLigName = addHydrogens(args.ligand)
-
-    global originalScore
-    originalScore = score(hRecName, hLigName)
-
-    global cenCoords
-    cenCoords = ligCenter(hLigName)
-    if args.verbose:
-        print("\nWeights: "+args.cnn_weights)
-        print("Model: "+args.cnn_model+"\n")
-        print("Original Score: %f") % originalScore
-
-
-    ligand = False
-    receptor = False
-    if args.ligand_output:
-        ligand = True
-    if args.receptor_output:
-        receptor = True
-
-    if ligand:
-        #extract file name from path
-        molName = args.ligand
-        molName = string.split(molName,  "/")
-        molName = molName[len(molName)-1]
-        molName = string.split(molName, ".")
-        molName = molName[0] + ".pdb"
-        uniqName = uniq(molName)
-
-        if not args.no_frag:
-            if args.verbose:
-                print("Fragmenting " + molName)
-            frags = fragment(uniqName, hLigName)
-
-        if args.verbose:
-            print("Removing all atoms from " + molName)
-        all = removeEachAtom(hLigName)
-
-
-        newScores = {}
-
-        #generate correlation for testing
-        #corr = open('frags_vs_iter.dat', 'w')
-        #corr.write("Frags Iter")
-        #for index in all:
-        #    if index in frags and frags[index] !=None:
-        #        corr.write(str(frags[index]) + " " + str(all[index]) + '\n')
-
-        #average fragment and iterative removals
-        if not args.no_frag and frags != None:
-            for index in all:
-                if index in frags and frags[index] != None:
-                    newScores[index] = (all[index] + frags[index]) / 2
-                else:
-                    newScores[index] = all[index]
-
-            for index in frags:
-                if not index in newScores:
-                    newScores[index] = frags[index]
-
-            writeScores(hLigName, newScores, isRec = False)
-
-        #rdkit read error, just use iterative scores
-        else:
-            writeScores(hLigName, all, isRec = False)
-
-    if receptor:
-
-        #extract file natme from path
-        molName = args.receptor
-        molName = string.split(molName,  "/")
-        molName = molName[len(molName)-1]
-        molName = string.split(molName, ".")
-        molName = molName[0] + ".pdb"
-
-        if args.verbose:
-            print("Removing residues from " + molName + "\n")
-        resScores = removeResidues(hRecName)
-
-        writeScores(hRecName, resScores, isRec = True) 
-    '''
 
 if __name__ == "__main__":
     main()
