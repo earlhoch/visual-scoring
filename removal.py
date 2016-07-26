@@ -80,11 +80,15 @@ class ColoredMol:
                     if not index in newScores:
                         newScores[index] = frags[index]
 
-                self.writeScores(newScores, isRec = False)
+                self.writeScores(self.transform(newScores), isRec = False)
 
             #rdkit read error, just use iterative scores
             else:
-                self.writeScores(all, isRec = False)
+                self.writeScores(self.transform(all), isRec = False)
+
+            print "Original Score: %f" % self.originalScore
+            print "Sum of all: %f" % sum(all.itervalues())
+            print "Sum of frags: %f" % sum(frags.itervalues())
 
         if self.outRec:
 
@@ -99,7 +103,8 @@ class ColoredMol:
                 print("Removing residues from " + molName + "\n")
             resScores = self.removeResidues()
 
-            self.writeScores(resScores, isRec = True) 
+            self.writeScores(self.transform(resScores), isRec = True) 
+            
 
 
     def score(self, scoreLigName, scoreRecName):
@@ -125,8 +130,8 @@ class ColoredMol:
                 return 0
 
             g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina',\
-                        '--score_only','-r', scoreRecName, '-l', scoreLigName, '-o',\
-                        'min.sdf','--cnn_scoring', '--autobox_ligand', self.ligName,\
+                        '--score_only','-r', scoreRecName, '-l', scoreLigName,\
+                        '--cnn_scoring', '--autobox_ligand', self.ligName,\
                         '--cnn_model' , self.model, '--cnn_weights',\
                         self.weights, '--cpu', '1', '--cnn_rotation', '24', \
                         '--gpu','--addH','0']
@@ -287,18 +292,30 @@ class ColoredMol:
         diff = self.originalScore - scoreVal
         print "Diff: \t%s" % diff
 
-        # sqrt to bring up smaller values
-        if diff < 0:
-            diff = 0 - math.sqrt(abs(diff))
-        else:
-            diff = math.sqrt(diff)
 
         #divided by number of atoms in group to avoid bias towards large groups
-        adj = diff * 100 / len(atomList)
-        print "Atom: \t%s\n" % adj
+        adj = diff / len(atomList)
 
         os.remove("temp.pdb")
         return adj
+
+    def transform(self, inDict):
+
+        outDict = {}
+        val = 0
+        for index in inDict:
+
+            # sqrt to bring up smaller values
+            if inDict[index] < 0:
+                val = 0 - math.sqrt(abs(inDict[index]))
+            else:
+               val = math.sqrt(inDict[index])
+
+            val = val * 100
+
+            outDict[index] = val
+        
+        return outDict
 
     def removeResidues(self):
 
