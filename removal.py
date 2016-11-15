@@ -6,12 +6,14 @@ import argparse
 import subprocess
 import re
 import string
-import createsmartsdescriptors
 import math
 import os
+import createsmartsdescriptors
+
 
 class ColoredMol:
-    def __init__(self, ligName, recName, model, weights, size, outRec = None, outLig = None, no_frag = False, verbose = False):
+    def __init__(self, ligName, recName, model, weights, size, outRec = None,\
+            outLig = None, no_frag = False, verbose = False):
         self.ligName = ligName
         self.recName = recName
         self.verbose = verbose
@@ -24,21 +26,24 @@ class ColoredMol:
         self.outLig = outLig
 
     def color(self):
-        self.hRecName = self.addHydrogens(self.recName)
-        self.hLigName = self.addHydrogens(self.ligName)
+        self.hRecName = self.process(self.recName)
+        self.hLigName = self.process(self.ligName)
+
 
         self.originalScore = self.score(self.hLigName, self.hRecName)
 
         self.cenCoords = self.ligCenter()
 
         obConv = openbabel.OBConversion()
+        obConv.AddOption('p')
+        obConv.SetInFormat("PDBQT")
         self.recMol = openbabel.OBMol()
         self.ligMol = openbabel.OBMol()
         obConv.ReadFile(self.recMol, self.hRecName)
         obConv.ReadFile(self.ligMol, self.hLigName)
 
         self.uniqLigName = self.uniq(self.hLigName)
-        self.uniqLigMol = Chem.MolFromPDBFile(self.uniqLigName, removeHs = False)
+        self.uniqLigMol = Chem.MolFromPDBFile(self.ligPDB, removeHs = False)
 
         if not self.uniqLigMol:
             print("RDKit Read Error")
@@ -61,6 +66,9 @@ class ColoredMol:
                 if self.verbose:
                     print("Fragmenting " + molName)
                 frags = self.fragment()
+
+            else:
+                frags = None
 
             if self.verbose:
                 print("Removing all atoms from " + molName)
@@ -87,8 +95,6 @@ class ColoredMol:
                 self.writeScores(self.transform(all), isRec = False)
 
             print "Original Score: %f" % self.originalScore
-            print "Sum of all: %f" % sum(all.itervalues())
-            print "Sum of frags: %f" % sum(frags.itervalues())
 
         if self.outRec:
 
@@ -104,8 +110,6 @@ class ColoredMol:
             resScores = self.removeResidues()
 
             self.writeScores(self.transform(resScores), isRec = True) 
-            
-
 
     def score(self, scoreLigName, scoreRecName):
         #returns CNN Score of lig and rec as float
@@ -129,7 +133,7 @@ class ColoredMol:
             if count == 1: #all atoms have been removed
                 return 0
 
-            g_args = ['/home/dkoes/git/gnina/build/linux/release/gnina',\
+            g_args = ['/home/josh/git/gnina/build/linux/release/gnina',\
                         '--score_only','-r', scoreRecName, '-l', scoreLigName,\
                         '--cnn_scoring', '--autobox_ligand', self.ligName,\
                         '--cnn_model' , self.model, '--cnn_weights',\
@@ -141,6 +145,7 @@ class ColoredMol:
             try:
                 output = subprocess.check_output(g_args, stdin=None, stderr=None)
             except:
+                print("score broke something")
                 sys.exit(0)
 
             cnnScore = None
@@ -154,10 +159,10 @@ class ColoredMol:
     def writeScores(self, scoreDict, isRec):
         if isRec:
             filename = self.outRec
-            hMolName = self.hRecName
+            hMolName = self.recName
         else:
             filename = self.outLig
-            hMolName = self.hLigName
+            hMolName = self.ligName
 
         orig = open(hMolName, 'r')
         out = open(filename, 'w')
@@ -240,54 +245,26 @@ class ColoredMol:
         else:
             orig = open(self.hLigName, 'r')
 
-        writer = open("temp.pdb",'w')
+        writer = open("temp.pdbqt",'w')
+
+        writer.write("ROOT\n")
 
         for line in orig:
-            if "CONECT" in line:
-                valid = True
-
-                #remove whole line if first number is being removed
-                if int(line[6:11]) in atomList:
-                    valid = False
-
-                if valid:
-                    keepList = []
-                    keepList.append(line[6:11])
-                    if not line[11:16].isspace():
-                        if not int(line[11:16]) in atomList:
-                            keepList.append(line[11:16])
-                    if not line[16:21].isspace():
-                        if not int(line[16:21]) in atomList:
-                            keepList.append(line[16:21])
-                    if not line[21:26].isspace():
-                        if not int(line[21:26]) in atomList:
-                            keepList.append(line[21:26])
-                    if not line[26:31].isspace():
-                        if not int(line[26:31]) in atomList:
-                            keepList.append(line[26:31])
-
-                    newLine = "CONECT"
-                    for item in keepList:
-                        newLine += "%5s" % item
-                    newLine = newLine.ljust(70)
-                    newLine += '\n'
-
-                    writer.write(newLine)
-
-            if 'END' in line:
-                writer.write(line)
-                break
             if 'HETATM' in line or 'ATOM' in line:
                 index = int(string.strip(line[6:11]))
                 if index not in atomList:
                     writer.write(line)
 
+        writer.write("ENDROOT\n")
+        writer.write("TORSDOF 0")
+
         writer.close()
 
         if isRec:
-            scoreVal = self.score(self.hLigName, "temp.pdb")
+            print("Scoring: " + self.hLigName + "|" + "temp.pdbqt")
+            scoreVal = self.score(self.hLigName, "temp.pdbqt")
         else:
-            scoreVal = self.score("temp.pdb", self.hRecName)
+            scoreVal = self.score("temp.pdbqt", self.hRecName)
         print "Score: \t%s" % scoreVal
         diff = self.originalScore - scoreVal
         print "Diff: \t%s" % diff
@@ -296,7 +273,7 @@ class ColoredMol:
         #divided by number of atoms in group to avoid bias towards large groups
         adj = diff / len(atomList)
 
-        os.remove("temp.pdb")
+        os.remove("temp.pdbqt")
         return adj
 
     def transform(self, inDict):
@@ -338,9 +315,10 @@ class ColoredMol:
                     resList.append(line[23:27])
 
 
+
         #iterates through each residue id
         for res in resList:
-                    temp = open("temp.pdb", 'w')
+                    temp = open("temp.pdbqt", 'w')
 
                     #find all atoms in residue
                     for line in pdbText:
@@ -361,7 +339,7 @@ class ColoredMol:
     def ligCenter(self):
         #returns center of ligand
         obConv = openbabel.OBConversion()
-        obConv.SetInAndOutFormats("pdb", "pdb")
+        obConv.SetInFormat("pdbqt")
 
         mol = openbabel.OBMol()
         obConv.ReadFile(mol, self.hLigName)
@@ -438,24 +416,33 @@ class ColoredMol:
 
         return newName
 
-    def addHydrogens(self, molName):
+    def process(self, molName):
         #adds hydrogens and writes to file
+        #converts to pdbqt to test against gnina version
         #uses openbabel to best simulate gnina's hydrogen addition
         #file has '_h' appended to end
 
         split = string.split(molName, '/')
         molName = split[len(split)-1]
         split = string.split(molName, '.')
-        newName = split[0]+"_h.pdb"
+        newName = split[0]+"_h.pdbqt"
 
+        
         obConv = openbabel.OBConversion()
-        obConv.SetInAndOutFormats(split[1], "pdb")
+        obConv.AddOption('p')
+
+        obConv.SetInAndOutFormats(split[1], "pdbqt")
 
         mol = openbabel.OBMol()
+
         obConv.ReadFile(mol, molName)
         mol.AddHydrogens()
 
         obConv.WriteFile(mol, newName)
+
+        self.ligPDB = "lig.pdb" #pdb for rdkit to read in
+        obConv.SetOutFormat("PDB")
+        obConv.WriteFile(mol, self.ligPDB)
 
         return newName
 
@@ -471,8 +458,6 @@ def main():
     parser.add_argument('-l','--ligand', type = str, help = 'ligand for scoring', required = True)
     parser.add_argument('-r','--receptor', type = str, help = 'receptor for \
                         scoring', required = True)
-    #parser.add_argument('--color_ligand',action = 'store_true')
-    #parser.add_argument('--color_receptor',action = 'store_true')
     parser.add_argument('--ligand_output', type = str, help = 'filename to \
                         output colored ligand')
     parser.add_argument('--receptor_output', type = str, help = 'filename to\
