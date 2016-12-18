@@ -1,0 +1,124 @@
+#!/usr/bin/env python
+import subprocess
+import os
+
+class colors:
+    FAIL = '\033[91m'
+    PASS = '\033[92m'
+    END  = '\033[0m'
+
+def run_color(ligand, receptor):
+
+    ligout = "out_lig"
+    recout = "out_rec"
+
+    gargs = ['/home/jeh176/git/gnina/build/linux/release/gninavis','--receptor', receptor, '--ligand', ligand,\
+                '--ligand_output', ligout , '--receptor_output', recout , '--cnn_model', \
+                '/home/jeh176/git/models/refmodel3/refmodel3.model', '--cnn_weights', \
+                '/home/jeh176/git/models/refmodel3/weights/allfolds_2to1_dude_csar.caffemodel', '--gpu', '0']
+
+    subprocess.call(gargs)
+
+    return (ligout, recout)
+
+def compare_output(ref_lig, ref_rec, test_lig, test_rec):
+
+    passed = True
+
+    test_lig = open(test_lig, 'r')
+    test_rec = open(test_rec, 'r')
+
+    ref_rec = open(ref_rec, 'r')
+    ref_lig = open(ref_lig, 'r')
+
+    lig_dict = {}
+    rec_dict = {}
+
+    for line in ref_lig:
+        tokens = line.split()
+        if (tokens[0] == "ATOM" or tokens[0] == "HETATM"):
+            lig_dict[tokens[1]] = tokens[9]
+
+    misses = []
+
+    for line in test_lig:
+        tokens = line.split()
+        if (tokens[0] == "ATOM" or tokens[0] == "HETATM"):
+            if (tokens[9] != lig_dict[tokens[1]]):
+                misses.append((tokens[1], tokens[9], lig_dict[tokens[1]]))
+
+    if (len(misses) > 0):
+        passeded = False
+        for miss in misses:
+            print colors.FAIL+"Miss at index: " + miss[0] + " (" + miss[1] + " vs. " + miss[2] + ")" + colors.END
+    else:
+        print colors.PASS+"Ligand passed"+colors.END
+
+    for line in ref_rec:
+        tokens = line.split()
+        if (tokens[0] == "ATOM" or tokens[0] == "HETATM"):
+            rec_dict[tokens[1]] = tokens[10]
+
+    misses = []
+
+    for line in test_rec:
+        tokens = line.split()
+        if (tokens[0] == "ATOM" or tokens[0] == "HETATM"):
+            if (tokens[10] != rec_dict[tokens[1]]):
+                misses.append((tokens[1], tokens[10], rec_dict[tokens[1]]))
+
+    if (len(misses) > 0):
+        passed = False
+        for miss in misses:
+            print colors.FAIL+"Miss at index: " + miss[0] + " (" + miss[1] + " vs. " + miss[2] + ")" + colors.END
+    else:
+        print colors.PASS+"Receptor passed"+colors.END
+
+    return passed
+
+def test(ref_lig, ref_rec, test_lig, test_rec):
+
+    output = run_color(test_lig,test_rec)
+    passed = compare_output(ref_lig, ref_rec, output[0], output[1])
+    os.remove(output[0])
+    os.remove(output[1])
+
+    return passed
+
+
+
+
+print("Starting Test...")
+
+overall = True
+#3gvu
+passed = test('/home/jeh176/vistest/reference/colored_3gvu_lig.pdbqt', \
+        '/home/jeh176/vistest/reference/colored_3gvu_rec.pdbqt',\
+        '/home/jeh176/vistest/3gvu_lig.pdb',\
+        '/home/jeh176/vistest/3gvu_rec.pdb')
+
+if not passed:
+    overall = False
+#set2_152
+test('/home/jeh176/vistest/reference/colored_set2_152_lig.pdbqt', \
+        '/home/jeh176/vistest/reference/colored_set2_152_rec.pdbqt', \
+        '/home/jeh176/vistest/set2/152/lig.sdf',\
+        '/home/jeh176/vistest/set2/152/rec.pdb')
+
+if not passed:
+    overall = False
+#set2_175
+test('/home/jeh176/vistest/reference/colored_set2_175_lig.pdbqt', \
+        '/home/jeh176/vistest/reference/colored_set2_175_rec.pdbqt', \
+        '/home/jeh176/vistest/set2/175/lig.sdf',\
+        '/home/jeh176/vistest/set2/175/rec.pdb')
+
+if not passed:
+    overall = False
+
+print "------------------------"
+
+if overall:
+    print colors.PASS + "ALL TESTS PASSED" + colors.END
+else:
+    print colors.FAIL + "FAILURES" + colors.END
